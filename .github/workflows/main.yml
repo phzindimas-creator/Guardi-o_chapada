@@ -1,0 +1,785 @@
+import pygame
+import random
+import sys
+import os
+
+# ============================================================
+# GUARDIAN OF CHAPADA GAUCHA - ANDROID VERSION
+# Touch controls, landscape orientation and fullscreen.
+# ============================================================
+
+pygame.init()
+
+WIDTH, HEIGHT = 1100, 650
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
+pygame.display.set_caption("Guardian of Chapada Gaucha")
+
+# Colors
+GREEN = (34, 139, 34)
+SKY_BLUE = (100, 180, 255)
+HIGH_SKY_BLUE = (40, 80, 180)
+MOUNTAIN_BROWN = (120, 60, 20)
+GOLD = (255, 215, 0)
+SEED_GREEN = (50, 205, 50)
+BIRD_BLUE = (30, 144, 255)
+SILVER = (192, 192, 192)
+FIRE = (255, 100, 0)
+WHITE = (255, 255, 255)
+RED = (220, 50, 50)
+HOUSE_GRAY = (160, 160, 160)
+ROOF_BROWN = (180, 90, 40)
+SHADOW = (40, 30, 60)
+DARK_PURPLE = (80, 20, 120)
+SADDLE_BROWN = (100, 60, 20)
+GOLD_DETAIL = (255, 200, 50)
+BLACK = (15, 15, 25)
+BUTTON_BLUE = (35, 85, 150)
+BUTTON_ACTIVE = (60, 125, 210)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Sounds
+sounds = {}
+
+def load_sounds():
+    for name in ["collect", "tame", "saddle", "fly", "attack", "defeat", "victory"]:
+        try:
+            sounds[name] = pygame.mixer.Sound(os.path.join(BASE_DIR, name + ".wav"))
+        except (pygame.error, FileNotFoundError, OSError):
+            pass
+
+def play_sound(name):
+    sound = sounds.get(name)
+    if sound:
+        try:
+            sound.play()
+        except pygame.error:
+            pass
+
+load_sounds()
+
+# Player
+PLAYER_SIZE = 36
+player_x = 80.0
+player_y = HEIGHT - PLAYER_SIZE - 80
+GROUND_SPEED = 5.0
+FLY_SPEED = 9.0
+
+lives = 5
+score = 0
+flying = False
+current_dragon = None
+
+equipped_saddles = {
+    "wind": False,
+    "crystal": False,
+    "guardian": False,
+    "king": False,
+}
+
+ability_timers = {
+    "wind": 0,
+    "light": 0,
+    "shield": 0,
+    "flame": 0,
+}
+
+shield_active = False
+defeated_enemies = 0
+
+# World objects
+seeds = []
+crystals = []
+birds = []
+obstacles = []
+dragons = []
+saddles = []
+houses = []
+enemies = []
+projectiles = []
+
+clock = pygame.time.Clock()
+font = pygame.font.Font(None, 26)
+large_font = pygame.font.Font(None, 42)
+button_font = pygame.font.Font(None, 30)
+
+# Android touch controls
+BUTTONS = {
+    "left": pygame.Rect(35, HEIGHT - 145, 78, 78),
+    "right": pygame.Rect(125, HEIGHT - 145, 78, 78),
+    "up": pygame.Rect(80, HEIGHT - 235, 78, 78),
+    "down": pygame.Rect(80, HEIGHT - 55, 78, 45),
+    "action": pygame.Rect(WIDTH - 210, HEIGHT - 150, 82, 82),
+    "power": pygame.Rect(WIDTH - 112, HEIGHT - 235, 82, 82),
+    "exit_dragon": pygame.Rect(WIDTH - 112, HEIGHT - 140, 82, 70),
+}
+
+touch_state = {key: False for key in BUTTONS}
+finger_buttons = {}
+
+def button_at(x, y):
+    for name, rect in BUTTONS.items():
+        if rect.collidepoint(x, y):
+            return name
+    return None
+
+def refresh_touch_state():
+    for key in touch_state:
+        touch_state[key] = False
+    for button in finger_buttons.values():
+        if button in touch_state:
+            touch_state[button] = True
+
+def draw_button(rect, label, active=False):
+    surface = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+    color = BUTTON_ACTIVE if active else BUTTON_BLUE
+    surface.fill((*color, 190))
+    screen.blit(surface, rect.topleft)
+    pygame.draw.rect(screen, WHITE, rect, 2, border_radius=14)
+    text = button_font.render(label, True, WHITE)
+    screen.blit(
+        text,
+        (rect.centerx - text.get_width() // 2,
+         rect.centery - text.get_height() // 2)
+    )
+
+def draw_touch_controls():
+    draw_button(BUTTONS["left"], "<", touch_state["left"])
+    draw_button(BUTTONS["right"], ">", touch_state["right"])
+    draw_button(BUTTONS["up"], "^", touch_state["up"])
+    draw_button(BUTTONS["down"], "v", touch_state["down"])
+    draw_button(BUTTONS["action"], "ACTION", touch_state["action"])
+    draw_button(BUTTONS["power"], "POWER", touch_state["power"])
+    if flying:
+        draw_button(
+            BUTTONS["exit_dragon"],
+            "EXIT",
+            touch_state["exit_dragon"]
+        )
+
+def create_world():
+    global seeds, crystals, birds, obstacles, dragons
+    global saddles, houses, enemies, projectiles
+
+    seeds = []
+    crystals = []
+    birds = []
+    obstacles = []
+    dragons = []
+    saddles = []
+    houses = []
+    enemies = []
+    projectiles = []
+
+    for _ in range(18):
+        seeds.append([
+            random.randint(100, WIDTH - 50),
+            random.randint(80, HEIGHT - 120),
+            18, 18
+        ])
+
+    for _ in range(12):
+        crystals.append([
+            random.randint(150, WIDTH - 50),
+            random.randint(40, HEIGHT - 180),
+            16, 28
+        ])
+
+    for _ in range(7):
+        birds.append([
+            random.randint(200, WIDTH - 100),
+            random.randint(30, HEIGHT - 220),
+            30, 24
+        ])
+
+    for _ in range(7):
+        obstacles.append([
+            random.randint(200, WIDTH - 150),
+            random.randint(HEIGHT - 160, HEIGHT - 80),
+            70, 22
+        ])
+
+    saddles.extend([
+        [250, HEIGHT - 140, "wind", "Leather Saddle"],
+        [500, 180, "crystal", "Crystal Saddle"],
+        [750, 100, "guardian", "Sky Saddle"],
+        [WIDTH - 180, 60, "king", "Royal Saddle"],
+    ])
+
+    for i in range(5):
+        x = 150 + i * 200
+        h = random.randint(60, 110)
+        houses.append([x, HEIGHT - 60 - h, 100, h])
+
+    for i in range(4):
+        x = 200 + i * 230
+        h = random.randint(80, 140)
+        houses.append([x + 60, HEIGHT - 60 - h, 90, h])
+
+def draw_dragon(dragon, x, y):
+    dragon_id, dragon_color, saddled = dragon[2], dragon[4], dragon[5]
+
+    pygame.draw.ellipse(screen, dragon_color, (x + 10, y + 15, 50, 25))
+    pygame.draw.circle(screen, dragon_color, (x + 60, y + 20), 15)
+    pygame.draw.circle(screen, BLACK, (x + 65, y + 16), 3)
+
+    pygame.draw.polygon(
+        screen, dragon_color,
+        [(x + 20, y + 10), (x - 5, y - 15), (x + 35, y + 25)]
+    )
+    pygame.draw.polygon(
+        screen, dragon_color,
+        [(x + 45, y + 10), (x + 70, y - 15), (x + 35, y + 25)]
+    )
+    pygame.draw.polygon(
+        screen, dragon_color,
+        [(x + 5, y + 25), (x - 10, y + 35), (x + 10, y + 30)]
+    )
+
+    if saddled:
+        pygame.draw.rect(
+            screen, SADDLE_BROWN, (x + 25, y + 8, 22, 12), border_radius=3
+        )
+        pygame.draw.rect(screen, GOLD_DETAIL, (x + 27, y + 10, 18, 3))
+        pygame.draw.rect(screen, GOLD_DETAIL, (x + 27, y + 16, 18, 3))
+
+    if dragon_id == "king":
+        pygame.draw.polygon(
+            screen, FIRE,
+            [(x - 5, y + 25), (x - 20, y + 20), (x - 15, y + 30)]
+        )
+
+def draw_enemy(enemy):
+    x, y = enemy[0], enemy[1]
+    pygame.draw.ellipse(screen, SHADOW, (x + 8, y + 12, 45, 22))
+    pygame.draw.circle(screen, SHADOW, (x + 53, y + 17), 13)
+    pygame.draw.circle(screen, RED, (x + 58, y + 13), 3)
+
+    pygame.draw.polygon(
+        screen, DARK_PURPLE,
+        [(x + 18, y + 8), (x - 8, y - 18), (x + 32, y + 20)]
+    )
+    pygame.draw.polygon(
+        screen, DARK_PURPLE,
+        [(x + 42, y + 8), (x + 68, y - 18), (x + 32, y + 20)]
+    )
+    pygame.draw.rect(screen, SHADOW, (x + 28, y - 8, 12, 18))
+    pygame.draw.circle(screen, DARK_PURPLE, (x + 34, y - 2), 7)
+
+def draw_scene():
+    # Lightweight background for Android performance.
+    for y in range(0, HEIGHT, 5):
+        color = HIGH_SKY_BLUE if y < 150 else SKY_BLUE
+        pygame.draw.rect(screen, color, (0, y, WIDTH, 5))
+
+    pygame.draw.rect(screen, GREEN, (0, HEIGHT - 60, WIDTH, 60))
+
+    pygame.draw.polygon(
+        screen, MOUNTAIN_BROWN,
+        [(0, HEIGHT - 60), (180, HEIGHT - 250), (350, HEIGHT - 60)]
+    )
+    pygame.draw.polygon(
+        screen, MOUNTAIN_BROWN,
+        [(300, HEIGHT - 60), (550, HEIGHT - 310), (800, HEIGHT - 60)]
+    )
+    pygame.draw.polygon(
+        screen, MOUNTAIN_BROWN,
+        [(700, HEIGHT - 60), (950, HEIGHT - 230), (WIDTH, HEIGHT - 60)]
+    )
+
+    for house in houses:
+        x, y, w, h = house
+        pygame.draw.rect(screen, HOUSE_GRAY, (x, y, w, h))
+        pygame.draw.polygon(
+            screen, ROOF_BROWN,
+            [(x - 5, y), (x + w // 2, y - 25), (x + w + 5, y)]
+        )
+
+        for j in range(2):
+            for k in range(max(1, h // 35)):
+                pygame.draw.rect(
+                    screen, (255, 255, 100),
+                    (x + 10 + j * 35, y + 10 + k * 30, 12, 15)
+                )
+
+def try_action():
+    global flying, current_dragon
+
+    if flying:
+        flying = False
+        current_dragon = None
+        return
+
+    for dragon in dragons:
+        if not dragon[4]:
+            if (
+                abs(player_x - dragon[0]) < 70
+                and abs(player_y - dragon[1]) < 70
+                and score >= dragon[6]
+            ):
+                dragon[4] = True
+                play_sound("tame")
+                return
+
+        elif dragon[4] and dragon[5]:
+            if abs(player_x - dragon[0]) < 70 and abs(player_y - dragon[1]) < 70:
+                current_dragon = dragon
+                flying = True
+                play_sound("fly")
+                return
+
+    # Pick up nearby saddle.
+    for saddle in saddles[:]:
+        sx, sy, saddle_id, _ = saddle
+        if abs(player_x - sx) < 55 and abs(player_y - sy) < 55:
+            for dragon in dragons:
+                if (
+                    dragon[2] == saddle_id
+                    and dragon[4]
+                    and not dragon[5]
+                ):
+                    dragon[5] = True
+                    equipped_saddles[saddle_id] = True
+                    saddles.remove(saddle)
+                    play_sound("saddle")
+                    return
+
+def use_power(now):
+    if not flying or not current_dragon:
+        return
+
+    dragon_id = current_dragon[2]
+    play_sound("attack")
+
+    if dragon_id == "wind" and now >= ability_timers["wind"]:
+        ability_timers["wind"] = now + 500
+        projectiles.append([player_x + 50, player_y, 12, "wind"])
+
+    elif dragon_id == "crystal" and now >= ability_timers["light"]:
+        ability_timers["light"] = now + 3000
+
+    elif dragon_id == "guardian" and now >= ability_timers["shield"]:
+        shield_active = True
+        ability_timers["shield"] = now + 4000
+
+    elif dragon_id == "king" and now >= ability_timers["flame"]:
+        ability_timers["flame"] = now + 700
+        projectiles.append([player_x + 50, player_y, 15, "flame"])
+
+def spawn_dragons():
+    if score >= 200 and not any(d[2] == "wind" for d in dragons):
+        dragons.append([
+            WIDTH - 100, 150, "wind", "Mountain Wind",
+            SILVER, False, 200
+        ])
+
+    if score >= 400 and not any(d[2] == "crystal" for d in dragons):
+        dragons.append([
+            random.randint(300, 600), 120, "crystal",
+            "Shining Crystal", GOLD, False, 400
+        ])
+
+    if score >= 700 and not any(d[2] == "guardian" for d in dragons):
+        dragons.append([
+            random.randint(200, 800), 80, "guardian",
+            "Cloud Guardian", BIRD_BLUE, False, 700
+        ])
+
+    if score >= 900 and not any(d[2] == "king" for d in dragons):
+        dragons.append([
+            WIDTH // 2, 50, "king", "King of the Skies",
+            FIRE, False, 900
+        ])
+
+def handle_touch_event(event):
+    if event.type == pygame.FINGERDOWN:
+        px = int(event.x * WIDTH)
+        py = int(event.y * HEIGHT)
+        button = button_at(px, py)
+        if button:
+            finger_buttons[event.finger_id] = button
+
+    elif event.type == pygame.FINGERUP:
+        finger_buttons.pop(event.finger_id, None)
+
+    elif event.type == pygame.FINGERMOTION:
+        # Keep the current button pressed while the finger moves.
+        if event.finger_id in finger_buttons:
+            px = int(event.x * WIDTH)
+            py = int(event.y * HEIGHT)
+            new_button = button_at(px, py)
+            if new_button:
+                finger_buttons[event.finger_id] = new_button
+            else:
+                finger_buttons.pop(event.finger_id, None)
+
+def main():
+    global player_x, player_y, lives, score, flying, current_dragon
+    global shield_active, defeated_enemies
+
+    running = True
+    previous_action = False
+    previous_power = False
+    previous_exit = False
+
+    create_world()
+
+    while running:
+        now = pygame.time.get_ticks()
+
+        for event in pygame.event.get():
+            # Android uses touch only. No keyboard controls.
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
+                handle_touch_event(event)
+
+        refresh_touch_state()
+
+        action_pressed = touch_state["action"] and not previous_action
+        power_pressed = touch_state["power"] and not previous_power
+        exit_pressed = touch_state["exit_dragon"] and not previous_exit
+
+        if action_pressed:
+            try_action()
+
+        if power_pressed:
+            use_power(now)
+
+        if exit_pressed and flying:
+            flying = False
+            current_dragon = None
+
+        previous_action = touch_state["action"]
+        previous_power = touch_state["power"]
+        previous_exit = touch_state["exit_dragon"]
+
+        if ability_timers["shield"] and now >= ability_timers["shield"]:
+            shield_active = False
+            ability_timers["shield"] = 0
+
+        speed = FLY_SPEED if flying else GROUND_SPEED
+
+        if touch_state["left"]:
+            player_x = max(0, player_x - speed)
+        if touch_state["right"]:
+            player_x = min(WIDTH - PLAYER_SIZE, player_x + speed)
+        if touch_state["up"]:
+            if flying:
+                player_y = max(0, player_y - speed)
+            else:
+                player_y = max(HEIGHT - PLAYER_SIZE - 120, player_y - speed)
+        if touch_state["down"]:
+            max_y = HEIGHT - PLAYER_SIZE if flying else HEIGHT - PLAYER_SIZE - 60
+            player_y = min(max_y, player_y + speed)
+
+        spawn_dragons()
+
+        # Enemies
+        if score >= 300 and len(enemies) < 2 and random.randint(0, 100) < 2:
+            enemies.append([WIDTH + 50, random.randint(50, HEIGHT - 200), 1])
+
+        if score >= 600 and len(enemies) < 4 and random.randint(0, 100) < 2:
+            enemies.append([WIDTH + 50, random.randint(50, HEIGHT - 200), 2])
+
+        if score >= 1000 and len(enemies) < 5 and random.randint(0, 100) < 3:
+            enemies.append([WIDTH + 50, random.randint(50, HEIGHT - 200), 3])
+
+        # Crystal light ability attracts collectibles.
+        if ability_timers["light"] and now < ability_timers["light"]:
+            for item in seeds:
+                if abs(item[0] - player_x) < 150:
+                    item[0] += (player_x - item[0]) * 0.05
+                if abs(item[1] - player_y) < 150:
+                    item[1] += (player_y - item[1]) * 0.05
+
+            for item in crystals:
+                if abs(item[0] - player_x) < 150:
+                    item[0] += (player_x - item[0]) * 0.05
+                if abs(item[1] - player_y) < 150:
+                    item[1] += (player_y - item[1]) * 0.05
+
+        # Collect seeds.
+        for item in seeds[:]:
+            pygame.draw.ellipse(screen, SEED_GREEN, item)
+            if (
+                player_x < item[0] + item[2]
+                and player_x + PLAYER_SIZE > item[0]
+                and player_y < item[1] + item[3]
+                and player_y + PLAYER_SIZE > item[1]
+            ):
+                seeds.remove(item)
+                score += 10
+                play_sound("collect")
+
+        # Collect crystals.
+        for item in crystals[:]:
+            x, y, w, h = item
+            pygame.draw.polygon(
+                screen, GOLD,
+                [(x + 8, y), (x + 16, y + h // 2),
+                 (x + 8, y + h), (x, y + h // 2)]
+            )
+
+            if (
+                player_x < x + w
+                and player_x + PLAYER_SIZE > x
+                and player_y < y + h
+                and player_y + PLAYER_SIZE > y
+            ):
+                crystals.remove(item)
+                score += 25
+                play_sound("collect")
+
+        # Birds.
+        for bird in birds[:]:
+            x, y, w, h = bird
+            pygame.draw.ellipse(screen, BIRD_BLUE, (x + 5, y + 8, 20, 12))
+            pygame.draw.polygon(
+                screen, BIRD_BLUE,
+                [(x + 5, y + 10), (x - 2, y + 4), (x + 8, y + 8)]
+            )
+            pygame.draw.polygon(
+                screen, BIRD_BLUE,
+                [(x + 25, y + 10), (x + 32, y + 4), (x + 22, y + 8)]
+            )
+
+            if (
+                player_x < x + w
+                and player_x + PLAYER_SIZE > x
+                and player_y < y + h
+                and player_y + PLAYER_SIZE > y
+            ):
+                birds.remove(bird)
+                score += 50
+                play_sound("collect")
+
+        # Saddles.
+        for saddle in saddles[:]:
+            sx, sy, _, saddle_name = saddle
+            pygame.draw.rect(
+                screen, SADDLE_BROWN, (sx, sy, 28, 16), border_radius=4
+            )
+            pygame.draw.rect(screen, GOLD_DETAIL, (sx + 2, sy + 2, 24, 3))
+            pygame.draw.rect(screen, GOLD_DETAIL, (sx + 2, sy + 11, 24, 3))
+            screen.blit(font.render(saddle_name, True, WHITE), (sx - 10, sy - 20))
+
+        # Dragons.
+        for dragon in dragons:
+            dx, dy = dragon[0], dragon[1]
+
+            if not dragon[4]:
+                draw_dragon(dragon, dx, dy)
+                dragon[1] += 0.25 if random.random() > 0.5 else -0.25
+                screen.blit(
+                    font.render(
+                        f"{dragon[3]}: {dragon[6]} pts", True, WHITE
+                    ),
+                    (dx - 20, dy - 30)
+                )
+
+            elif dragon[4] and not dragon[5]:
+                draw_dragon(dragon, dx, dy)
+                screen.blit(
+                    font.render(
+                        f"{dragon[3]} TAMED - find the saddle", True, WHITE
+                    ),
+                    (dx - 40, dy - 30)
+                )
+
+            elif dragon[4] and dragon[5] and current_dragon != dragon:
+                draw_dragon(dragon, dx, dy)
+                screen.blit(
+                    font.render(
+                        f"{dragon[3]} - TAP ACTION TO FLY", True, GOLD
+                    ),
+                    (dx - 50, dy - 30)
+                )
+
+            elif dragon[4] and dragon[5] and current_dragon == dragon:
+                dragon[0] = player_x - 45
+                dragon[1] = player_y - 15
+                draw_dragon(dragon, dragon[0], dragon[1])
+
+        # Enemies and collisions.
+        for enemy in enemies[:]:
+            enemy[0] -= 2 + enemy[2] * 0.5
+            draw_enemy(enemy)
+
+            if (
+                not shield_active
+                and abs(player_x - enemy[0]) < 50
+                and abs(player_y - enemy[1]) < 40
+            ):
+                lives -= 1
+                enemies.remove(enemy)
+                play_sound("defeat")
+                continue
+
+            hit = False
+            for projectile in projectiles[:]:
+                if (
+                    abs(projectile[0] - enemy[0]) < 45
+                    and abs(projectile[1] - enemy[1]) < 35
+                ):
+                    if enemy in enemies:
+                        enemies.remove(enemy)
+                    if projectile in projectiles:
+                        projectiles.remove(projectile)
+                    score += 100
+                    defeated_enemies += 1
+                    play_sound("attack")
+                    hit = True
+                    break
+
+            if hit:
+                continue
+
+            if enemy[0] < -60:
+                enemies.remove(enemy)
+
+        # Projectiles.
+        for projectile in projectiles[:]:
+            projectile[0] += 8
+            color = FIRE if projectile[3] == "flame" else (200, 220, 255)
+            pygame.draw.circle(
+                screen,
+                color,
+                (int(projectile[0]), int(projectile[1])),
+                projectile[2]
+            )
+
+            if projectile[0] > WIDTH + 50:
+                projectiles.remove(projectile)
+
+        # Ground obstacles.
+        if not flying:
+            for obstacle in obstacles:
+                pygame.draw.rect(screen, RED, obstacle, border_radius=4)
+                if (
+                    player_x < obstacle[0] + obstacle[2]
+                    and player_x + PLAYER_SIZE > obstacle[0]
+                    and player_y < obstacle[1] + obstacle[3]
+                    and player_y + PLAYER_SIZE > obstacle[1]
+                ):
+                    lives -= 1
+                    player_x, player_y = 80, HEIGHT - PLAYER_SIZE - 80
+                    play_sound("defeat")
+
+        # Draw shield.
+        if shield_active:
+            pygame.draw.circle(
+                screen, (100, 200, 255),
+                (int(player_x + PLAYER_SIZE // 2),
+                 int(player_y + PLAYER_SIZE // 2)),
+                45, 3
+            )
+
+        # Player.
+        pygame.draw.rect(
+            screen, (255, 140, 0),
+            (int(player_x), int(player_y), PLAYER_SIZE, PLAYER_SIZE),
+            border_radius=6
+        )
+        pygame.draw.circle(
+            screen, (255, 200, 150),
+            (int(player_x + 18), int(player_y + 8)),
+            9
+        )
+
+        # Interface.
+        screen.blit(font.render(f"SEEDS: {len(seeds)}", True, WHITE), (10, 10))
+        screen.blit(font.render(f"CRYSTALS: {len(crystals)}", True, WHITE), (10, 35))
+        screen.blit(font.render(f"BIRDS: {len(birds)}", True, WHITE), (10, 60))
+        screen.blit(
+            font.render(f"SCORE: {score}/2000", True, GOLD),
+            (10, 85)
+        )
+        screen.blit(
+            font.render(f"LIVES: {lives}", True, RED),
+            (WIDTH - 150, 10)
+        )
+        screen.blit(
+            font.render(f"ENEMIES: {defeated_enemies}", True, DARK_PURPLE),
+            (WIDTH - 150, 35)
+        )
+        screen.blit(
+            font.render(
+                f"SADDLES: {sum(equipped_saddles.values())}/4",
+                True, GOLD
+            ),
+            (WIDTH - 150, 60)
+        )
+
+        if flying and current_dragon:
+            screen.blit(
+                large_font.render(
+                    f"FLYING: {current_dragon[3]}",
+                    True, GOLD
+                ),
+                (WIDTH // 2 - 180, 5)
+            )
+            ability_name = {
+                "wind": "POWER: WIND BLAST",
+                "crystal": "POWER: LIGHT FIELD",
+                "guardian": "POWER: PROTECTIVE SHIELD",
+                "king": "POWER: SACRED FLAME",
+            }[current_dragon[2]]
+
+            screen.blit(
+                font.render(ability_name, True, WHITE),
+                (WIDTH // 2 - 100, 45)
+            )
+
+        draw_touch_controls()
+        pygame.display.flip()
+        clock.tick(60)
+
+        if lives <= 0:
+            screen.fill((20, 20, 40))
+            text = large_font.render(
+                "The Serra needs you! Try again!",
+                True, WHITE
+            )
+            screen.blit(
+                text,
+                (WIDTH // 2 - text.get_width() // 2, HEIGHT // 2)
+            )
+            pygame.display.flip()
+            pygame.time.wait(2500)
+            running = False
+
+        if (
+            score >= 2000
+            and all(equipped_saddles.values())
+            and defeated_enemies >= 5
+        ):
+            play_sound("victory")
+            screen.fill(GOLD)
+
+            messages = [
+                ("CONGRATULATIONS, LEGENDARY GUARDIAN!", MOUNTAIN_BROWN),
+                ("You tamed all dragons and equipped all saddles!", GREEN),
+                ("You protected the Serra and its wildlife!", BIRD_BLUE),
+                (f"Enemies defeated: {defeated_enemies}", FIRE),
+                ("Chapada Gaucha is safe thanks to you!", MOUNTAIN_BROWN),
+            ]
+
+            y = HEIGHT // 2 - 100
+            for message, color in messages:
+                text = large_font.render(message, True, color)
+                screen.blit(
+                    text,
+                    (WIDTH // 2 - text.get_width() // 2, y)
+                )
+                y += 45
+
+            pygame.display.flip()
+            pygame.time.wait(5000)
+            running = False
+
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()
