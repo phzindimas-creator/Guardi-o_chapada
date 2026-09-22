@@ -1,74 +1,617 @@
-name: Compilar APK com Buildozer 🐍📱
+name: Build Chapada Dragon APK
 
 on:
-  push:
-    branches: [ "main", "master" ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
-      # 1. 📥 Descarregar o repositório do GitHub
-      - name: Clonar repositório
+
+      - name: Baixar repositorio
         uses: actions/checkout@v4
 
-      # 2. 📦 Descompactar ficheiro ZIP automaticamente (se existir)
-      - name: Descompactar ficheiro ZIP
-        run: |
-          ZIP_FILE=$(find . -maxdepth 2 -iname "*.zip" | head -n 1)
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Ficheiro ZIP encontrado: $ZIP_FILE"
-            unzip -o "$ZIP_FILE"
-          else
-            echo "Nenhum ficheiro ZIP encontrado na raiz."
-          fi
-
-      # 3. 🐍 Configurar o ambiente Python 3.10
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      # 4. ☕ Configurar o Java JDK 17
-      - name: Configurar Java JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      # 5. 🛠️ Instalar dependências do sistema e do Buildozer
-      - name: Instalar dependências e Buildozer
+      - name: Instalar dependencias
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libsqlite3-dev zlib1g-dev libssl-dev libffi-dev unzip
-          pip install --upgrade pip
-          pip install buildozer cython
 
-      # 6. ⚙️ Localizar o buildozer.spec, aceitar licenças e compilar o APK
-      - name: Aceitar Licenças e Compilar APK
+          sudo apt-get install -y \
+            python3-pip \
+            python3-venv \
+            git \
+            zip \
+            unzip \
+            wget \
+            curl \
+            openjdk-17-jdk \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            libltdl-dev \
+            libffi-dev \
+            libssl-dev \
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev
+
+      - name: Instalar Buildozer
         run: |
-          SPEC_PATH=$(find . -name "buildozer.spec" -print -quit)
-          
-          if [ -z "$SPEC_PATH" ]; then
-            echo "❌ ERRO: O ficheiro buildozer.spec não foi encontrado no repositório!"
+          python3 -m pip install --upgrade pip setuptools
+
+          python3 -m pip install \
+            buildozer==1.6.0 \
+            cython==0.29.37
+
+      - name: Extrair projeto antigo
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p projeto
+
+          ZIP_FILE=$(find . \
+            -maxdepth 3 \
+            -type f \
+            -iname "*.zip" \
+            ! -path "./.git/*" \
+            | head -n 1 || true)
+
+          if [ -n "$ZIP_FILE" ]; then
+
+            echo "================================"
+            echo "ZIP ENCONTRADO"
+            echo "================================"
+            echo "$ZIP_FILE"
+
+            unzip -o "$ZIP_FILE" -d projeto
+
+          else
+
+            echo "================================"
+            echo "USANDO ARQUIVOS DO REPOSITORIO"
+            echo "================================"
+
+            cp -R . projeto/
+            rm -rf projeto/.git
+
+          fi
+
+      - name: Encontrar projeto
+        shell: bash
+        run: |
+          set -e
+
+          SPEC=$(find projeto \
+            -name "buildozer.spec" \
+            -type f \
+            | head -n 1 || true)
+
+          if [ -z "$SPEC" ]; then
+
+            echo "ERRO: buildozer.spec nao encontrado."
+
+            find projeto \
+              -maxdepth 6 \
+              -type f \
+              | head -n 300
+
             exit 1
           fi
 
-          DIR_PATH=$(dirname "$SPEC_PATH")
-          echo "📁 A entrar na pasta do projeto: $DIR_PATH"
-          cd "$DIR_PATH"
+          PROJECT_DIR=$(dirname "$SPEC")
 
-          # Aceitar todas as licenças do Android SDK
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          echo "SPEC=$SPEC" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          # Compilar o APK
-          buildozer -v android debug
+          echo "================================"
+          echo "PROJETO ENCONTRADO"
+          echo "================================"
 
-      # 7. 📥 Disponibilizar o APK para Download
-      - name: Guardar APK para Download
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: '**/bin/*.apk'
+          echo "$PROJECT_DIR"
+
+      - name: Criar recipe pygame-ce
+        shell: bash
+        run: |
+          set -e
+
+          RECIPE_DIR="$PROJECT_DIR/p4a-recipes/pygame-ce"
+
+          mkdir -p "$RECIPE_DIR"
+
+          cat > "$RECIPE_DIR/__init__.py" <<'PYTHON'
+          from os.path import join
+
+          from pythonforandroid.recipe import CompiledComponentsPythonRecipe
+          from pythonforandroid.toolchain import current_directory
+
+
+          class PygameCeRecipe(CompiledComponentsPythonRecipe):
+
+              version = "2.4.0"
+
+              url = (
+                  "https://github.com/pygame-community/"
+                  "pygame-ce/archive/{version}.tar.gz"
+              )
+
+              site_packages_name = "pygame-ce"
+
+              name = "pygame-ce"
+
+              depends = [
+                  "sdl2",
+                  "sdl2_image",
+                  "sdl2_mixer",
+                  "sdl2_ttf",
+                  "setuptools",
+                  "jpeg",
+                  "png",
+              ]
+
+              call_hostpython_via_targetpython = False
+
+              install_in_hostpython = False
+
+              def prebuild_arch(self, arch):
+
+                  super().prebuild_arch(arch)
+
+                  with current_directory(
+                      self.get_build_dir(arch.arch)
+                  ):
+
+                      setup_template = open(
+                          join(
+                              "buildconfig",
+                              "Setup.Android.SDL2.in"
+                          )
+                      ).read()
+
+                      env = self.get_recipe_env(arch)
+
+                      env["ANDROID_ROOT"] = join(
+                          self.ctx.ndk.sysroot,
+                          "usr"
+                      )
+
+                      png = self.get_recipe(
+                          "png",
+                          self.ctx
+                      )
+
+                      png_lib_dir = join(
+                          png.get_build_dir(
+                              arch.arch
+                          ),
+                          ".libs"
+                      )
+
+                      png_inc_dir = png.get_build_dir(
+                          arch
+                      )
+
+                      jpeg = self.get_recipe(
+                          "jpeg",
+                          self.ctx
+                      )
+
+                      jpeg_inc_dir = jpeg_lib_dir = (
+                          jpeg.get_build_dir(
+                              arch.arch
+                          )
+                      )
+
+                      sdl_mixer_includes = ""
+
+                      sdl2_mixer_recipe = self.get_recipe(
+                          "sdl2_mixer",
+                          self.ctx
+                      )
+
+                      for include_dir in (
+                          sdl2_mixer_recipe.get_include_dirs(
+                              arch
+                          )
+                      ):
+                          sdl_mixer_includes += (
+                              f"-I{include_dir} "
+                          )
+
+                      setup_file = setup_template.format(
+
+                          sdl_includes=(
+                              " -I"
+                              + join(
+                                  self.ctx.bootstrap.build_dir,
+                                  "jni",
+                                  "SDL",
+                                  "include"
+                              )
+                              + " -L"
+                              + join(
+                                  self.ctx.bootstrap.build_dir,
+                                  "libs",
+                                  str(arch)
+                              )
+                              + " -L"
+                              + png_lib_dir
+                              + " -L"
+                              + jpeg_lib_dir
+                              + " -L"
+                              + arch.ndk_lib_dir_versioned
+                          ),
+
+                          sdl_ttf_includes=(
+                              "-I"
+                              + join(
+                                  self.ctx.bootstrap.build_dir,
+                                  "jni",
+                                  "SDL2_ttf"
+                              )
+                          ),
+
+                          sdl_image_includes=(
+                              "-I"
+                              + join(
+                                  self.ctx.bootstrap.build_dir,
+                                  "jni",
+                                  "SDL2_image"
+                              )
+                          ),
+
+                          sdl_mixer_includes=sdl_mixer_includes,
+
+                          jpeg_includes=(
+                              "-I"
+                              + jpeg_inc_dir
+                          ),
+
+                          png_includes=(
+                              "-I"
+                              + png_inc_dir
+                          ),
+
+                          freetype_includes=""
+                      )
+
+                      open(
+                          "Setup",
+                          "w"
+                      ).write(
+                          setup_file
+                      )
+
+              def get_recipe_env(self, arch):
+
+                  env = super().get_recipe_env(
+                      arch
+                  )
+
+                  env["USE_SDL2"] = "1"
+                  env["PYGAME_CROSS_COMPILE"] = "TRUE"
+                  env["PYGAME_ANDROID"] = "TRUE"
+
+                  return env
+
+
+          recipe = PygameCeRecipe()
+          PYTHON
+
+          echo "================================"
+          echo "RECIPE CRIADA"
+          echo "================================"
+
+          cat "$RECIPE_DIR/__init__.py"
+
+      - name: Corrigir buildozer.spec
+        shell: bash
+        run: |
+          set -e
+
+          python3 - "$SPEC" "$PROJECT_DIR" <<'PYTHON'
+          import sys
+          from pathlib import Path
+
+          spec = Path(sys.argv[1])
+          project = Path(sys.argv[2]).resolve()
+
+          text = spec.read_text(
+              encoding="utf-8",
+              errors="replace"
+          )
+
+          lines = text.splitlines()
+
+          if not any(
+              line.strip() == "[app]"
+              for line in lines
+          ):
+              lines.insert(0, "[app]")
+
+          def set_option(name, value):
+
+              section = None
+              found = False
+
+              for i, line in enumerate(lines):
+
+                  stripped = line.strip()
+
+                  if (
+                      stripped.startswith("[")
+                      and stripped.endswith("]")
+                  ):
+                      section = stripped.lower()
+                      continue
+
+                  if (
+                      section == "[app]"
+                      and stripped.startswith(
+                          name + " ="
+                      )
+                  ):
+
+                      lines[i] = (
+                          f"{name} = {value}"
+                      )
+
+                      found = True
+                      break
+
+              if not found:
+
+                  position = 1
+
+                  for i, line in enumerate(lines):
+
+                      if line.strip() == "[app]":
+                          position = i + 1
+                          break
+
+                  lines.insert(
+                      position,
+                      f"{name} = {value}"
+                  )
+
+          set_option(
+              "title",
+              "Chapada Dragon"
+          )
+
+          set_option(
+              "package.name",
+              "chapadadragon"
+          )
+
+          set_option(
+              "package.domain",
+              "org.chapadadragon"
+          )
+
+          set_option(
+              "source.dir",
+              project
+          )
+
+          set_option(
+              "version",
+              "0.1.0"
+          )
+
+          set_option(
+              "requirements",
+              "python3,pygame-ce"
+          )
+
+          set_option(
+              "source.include_exts",
+              "py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf"
+          )
+
+          set_option(
+              "android.archs",
+              "arm64-v8a"
+          )
+
+          set_option(
+              "android.accept_sdk_license",
+              "True"
+          )
+
+          recipe_dir = (
+              project
+              / "p4a-recipes"
+          ).resolve()
+
+          set_option(
+              "p4a.local_recipes",
+              recipe_dir
+          )
+
+          new_lines = []
+
+          for line in lines:
+
+              stripped = line.strip()
+
+              if stripped.startswith(
+                  "android.arch ="
+              ):
+                  continue
+
+              if stripped.startswith(
+                  "android.sdk ="
+              ):
+                  continue
+
+              if stripped.startswith(
+                  "android.ndk ="
+              ):
+                  continue
+
+              if stripped.startswith(
+                  "p4a.branch ="
+              ):
+                  continue
+
+              if stripped.startswith(
+                  "p4a.commit ="
+              ):
+                  continue
+
+              new_lines.append(line)
+
+          lines = new_lines
+
+          spec.write_text(
+              "\n".join(lines) + "\n",
+              encoding="utf-8"
+          )
+
+          print("")
+          print("================================")
+          print("BUILD0ZER.SPEC FINAL")
+          print("================================")
+          print(
+              spec.read_text(
+                  encoding="utf-8"
+              )
+          )
+          print("================================")
+          PYTHON
+
+      - name: Limpar ambiente antigo
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          rm -rf .buildozer
+          rm -rf bin
+
+          echo "Ambiente antigo removido."
+
+      - name: Preparar Android SDK
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          echo "================================"
+          echo "PREPARANDO ANDROID"
+          echo "================================"
+
+          buildozer android update
+
+          SDK="$HOME/.buildozer/android/platform/android-sdk"
+
+          if [ ! -d "$SDK" ]; then
+            echo "ERRO: SDK nao encontrado:"
+            echo "$SDK"
+            exit 1
+          fi
+
+          echo "SDK encontrado:"
+          echo "$SDK"
+
+          SDKMANAGER=$(find "$SDK" \
+            -type f \
+            -name "sdkmanager" \
+            | head -n 1 || true)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERRO: sdkmanager nao encontrado."
+
+            find "$SDK" \
+              -maxdepth 6 \
+              -type f \
+              | head -n 300
+
+            exit 1
+          fi
+
+          chmod +x "$SDKMANAGER"
+
+          echo "================================"
+          echo "ACEITANDO LICENCAS"
+          echo "================================"
+
+          yes | "$SDKMANAGER" \
+            --sdk_root="$SDK" \
+            --licenses || true
+
+          echo "================================"
+          echo "INSTALANDO BUILD TOOLS"
+          echo "================================"
+
+          yes | "$SDKMANAGER" \
+            --sdk_root="$SDK" \
+            "platform-tools" \
+            "build-tools;37.0.0" \
+            "platforms;android-35"
+
+          echo "================================"
+          echo "VERIFICANDO AIDL"
+          echo "================================"
+
+          AIDL=$(find "$SDK/build-tools" \
+            -type f \
+            -name "aidl" \
+            | head -n 1 || true)
+
+          if [ -z "$AIDL" ]; then
+            echo "ERRO: AIDL nao encontrado."
+            exit 1
+          fi
+
+          echo "AIDL encontrado:"
+          echo "$AIDL"
+
+      - name: Compilar APK
+        shell: bash
+        run: |
+          set +e
+
+          cd "$PROJECT_DIR"
+
+          echo "================================"
+          echo "COMPILANDO CHAPADA DRAGON"
+          echo "================================"
+
+          buildozer -v android debug \
+            2>&1 | tee build.log
+
+          STATUS=${PIPESTATUS[0]}
+
+          echo ""
+          echo "================================"
+          echo "ULTIMAS 200 LINHAS"
+          echo "================================"
+
+          tail -n 200 build.log
+
+          echo ""
+          echo "================================"
+          echo "CODIGO FINAL: $STATUS"
+          echo "================================"
+
+          exit $STATUS
+
+      - name: Procurar APK
+        shell: bash
+        run: |
+          echo "================================"
+          echo "PROCURANDO APK"
+          echo "================================"
+
+          find "$PROJECT_DIR/bin" \
+            -type f \
+            -name "*.apk
