@@ -19,7 +19,10 @@ jobs:
       - name: Instalar dependencias
         shell: bash
         run: |
+          set -e
+
           sudo apt-get update
+
           sudo apt-get install -y \
             python3-pip \
             python3-venv \
@@ -39,28 +42,81 @@ jobs:
       - name: Instalar Buildozer
         shell: bash
         run: |
-          python3 -m pip install --upgrade pip setuptools wheel
-          python3 -m pip install buildozer==1.6.0 cython==0.29.37
+          set -e
 
-      - name: Encontrar projeto
+          python3 -m pip install --upgrade pip setuptools wheel
+
+          python3 -m pip install \
+            buildozer==1.6.0 \
+            cython==0.29.37
+
+      - name: Preparar projeto
         shell: bash
         run: |
           set -e
 
-          SPEC=$(find . -type f -name "buildozer.spec" ! -path "./.git/*" | head -n 1 || true)
+          echo "========================================"
+          echo "PROCURANDO BUILDOZER.SPEC"
+          echo "========================================"
 
-          if [ -z "$SPEC" ]; then
-            echo "ERRO: buildozer.spec nao encontrado."
-            exit 1
+          SPEC=$(find . \
+            -type f \
+            -name "buildozer.spec" \
+            ! -path "./.git/*" \
+            | head -n 1 || true)
+
+          if [ -n "$SPEC" ]; then
+            echo "buildozer.spec encontrado:"
+            echo "$SPEC"
+          else
+            echo "buildozer.spec nao esta na raiz."
+            echo "Procurando ZIP do projeto..."
+
+            ZIP_FILE=$(find . \
+              -type f \
+              -iname "*.zip" \
+              ! -path "./.git/*" \
+              | head -n 1 || true)
+
+            if [ -z "$ZIP_FILE" ]; then
+              echo "ERRO: nenhum ZIP encontrado."
+              echo "Arquivos encontrados:"
+              find . -maxdepth 5 -type f | head -n 300
+              exit 1
+            fi
+
+            echo "ZIP encontrado:"
+            echo "$ZIP_FILE"
+
+            mkdir -p projeto
+
+            unzip -o "$ZIP_FILE" -d projeto
+
+            SPEC=$(find projeto \
+              -type f \
+              -name "buildozer.spec" \
+              | head -n 1 || true)
+
+            if [ -z "$SPEC" ]; then
+              echo "ERRO: o ZIP nao possui buildozer.spec."
+
+              echo "Conteudo do ZIP extraido:"
+              find projeto -maxdepth 6 -type f | head -n 300
+
+              exit 1
+            fi
           fi
 
           PROJECT_DIR=$(dirname "$SPEC")
 
+          echo "========================================"
+          echo "PROJETO ENCONTRADO"
+          echo "========================================"
+
+          echo "$PROJECT_DIR"
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "SPEC=$SPEC" >> "$GITHUB_ENV"
-
-          echo "Projeto encontrado:"
-          echo "$PROJECT_DIR"
 
       - name: Preparar pygame-ce
         shell: bash
@@ -83,6 +139,8 @@ jobs:
           'recipe = PygameCeRecipe()' \
           > "$PROJECT_DIR/p4a-recipes/pygame-ce/__init__.py"
 
+          echo "Recipe pygame-ce criada."
+
       - name: Corrigir buildozer spec
         shell: bash
         run: |
@@ -90,10 +148,21 @@ jobs:
 
           cd "$PROJECT_DIR"
 
+          echo "========================================"
+          echo "CORRIGINDO BUILDOZER.SPEC"
+          echo "========================================"
+
           sed -i '/^[[:space:]]*android\.arch[[:space:]]*=/d' buildozer.spec
           sed -i '/^[[:space:]]*android\.sdk[[:space:]]*=/d' buildozer.spec
           sed -i '/^[[:space:]]*android\.ndk[[:space:]]*=/d' buildozer.spec
           sed -i '/^[[:space:]]*android\.ndk_api[[:space:]]*=/d' buildozer.spec
+
+          sed -i '/^requirements[[:space:]]*=/d' buildozer.spec
+          sed -i '/^source.include_exts[[:space:]]*=/d' buildozer.spec
+          sed -i '/^android.archs[[:space:]]*=/d' buildozer.spec
+          sed -i '/^android.accept_sdk_license[[:space:]]*=/d' buildozer.spec
+          sed -i '/^p4a.local_recipes[[:space:]]*=/d' buildozer.spec
+          sed -i '/^p4a.bootstrap[[:space:]]*=/d' buildozer.spec
 
           if ! grep -q '^title[[:space:]]*=' buildozer.spec; then
             sed -i '/^\[app\]/a title = Chapada Dragon' buildozer.spec
@@ -115,13 +184,6 @@ jobs:
             sed -i '/^\[app\]/a source.dir = .' buildozer.spec
           fi
 
-          sed -i '/^requirements[[:space:]]*=/d' buildozer.spec
-          sed -i '/^source.include_exts[[:space:]]*=/d' buildozer.spec
-          sed -i '/^android.archs[[:space:]]*=/d' buildozer.spec
-          sed -i '/^android.accept_sdk_license[[:space:]]*=/d' buildozer.spec
-          sed -i '/^p4a.local_recipes[[:space:]]*=/d' buildozer.spec
-          sed -i '/^p4a.bootstrap[[:space:]]*=/d' buildozer.spec
-
           printf '%s\n' \
           'requirements = python3,pygame-ce' \
           'source.include_exts = py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf' \
@@ -130,6 +192,8 @@ jobs:
           'p4a.local_recipes = p4a-recipes' \
           'p4a.bootstrap = sdl2' \
           >> buildozer.spec
+
+          echo "buildozer.spec pronto."
 
       - name: Preparar ambiente
         shell: bash
@@ -142,17 +206,20 @@ jobs:
           rm -rf bin
           rm -f build.log
 
+          echo "Ambiente limpo."
+
           buildozer --version
 
       - name: Compilar APK
         shell: bash
         run: |
-          cd "$PROJECT_DIR"
-
           set +e
 
+          cd "$PROJECT_DIR"
+
           echo "========================================"
-          echo "INICIO DA COMPILACAO"
+          echo "CHAPADA DRAGON"
+          echo "COMPILANDO APK"
           echo "========================================"
 
           buildozer -v android debug > build.log 2>&1
@@ -186,15 +253,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Chapada-Dragon-Build-Log
-          path: |
-            ${{ env.PROJECT_DIR }}/build.log
-            ${{ env.PROJECT_DIR }}/.buildozer/android/platform/build-*/dists/*/build/outputs/logs/**
+          path: ${{ env.PROJECT_DIR }}/build.log
           if-no-files-found: warn
 
       - name: Procurar APK
         if: success()
         shell: bash
         run: |
+          echo "========================================"
+          echo "PROCURANDO APK"
+          echo "========================================"
+
           find "$PROJECT_DIR/bin" \
             -type f \
             -name "*.apk" \
