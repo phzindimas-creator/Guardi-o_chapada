@@ -12,12 +12,15 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+
       - name: Baixar repositorio
         uses: actions/checkout@v4
 
       - name: Instalar dependencias
+        shell: bash
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             python3-pip \
             python3-venv \
@@ -35,9 +38,13 @@ jobs:
             openjdk-17-jdk
 
       - name: Instalar Buildozer
+        shell: bash
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
-          python3 -m pip install buildozer==1.6.0 cython==0.29.37
+
+          python3 -m pip install \
+            buildozer==1.6.0 \
+            cython==0.29.37
 
       - name: Extrair projeto antigo
         shell: bash
@@ -46,19 +53,16 @@ jobs:
 
           mkdir -p projeto
 
-          ZIP_FILE=$(find . \
-            -maxdepth 4 \
-            -type f \
-            -iname "*.zip" \
-            ! -path "./.git/*" \
-            | head -n 1 || true)
+          ZIP_FILE=$(find . -maxdepth 4 -type f -iname "*.zip" ! -path "./.git/*" | head -n 1 || true)
 
           if [ -n "$ZIP_FILE" ]; then
             echo "ZIP encontrado:"
             echo "$ZIP_FILE"
+
             unzip -o "$ZIP_FILE" -d projeto
           else
             echo "Nenhum ZIP encontrado."
+
             cp -R . projeto/
             rm -rf projeto/.git
           fi
@@ -68,14 +72,13 @@ jobs:
         run: |
           set -e
 
-          SPEC=$(find projeto \
-            -type f \
-            -name "buildozer.spec" \
-            | head -n 1 || true)
+          SPEC=$(find projeto -type f -name "buildozer.spec" | head -n 1 || true)
 
           if [ -z "$SPEC" ]; then
             echo "ERRO: buildozer.spec nao encontrado."
+
             find projeto -maxdepth 6 -type f | head -n 300
+
             exit 1
           fi
 
@@ -97,35 +100,37 @@ jobs:
           mkdir -p "$RECIPE_DIR"
 
           cat > "$RECIPE_DIR/__init__.py" <<'PYTHON'
-          from pythonforandroid.recipe import CompiledComponentsPythonRecipe
+from pythonforandroid.recipe import CompiledComponentsPythonRecipe
 
 
-          class PygameCeRecipe(CompiledComponentsPythonRecipe):
-              version = "2.4.0"
+class PygameCeRecipe(CompiledComponentsPythonRecipe):
 
-              url = (
-                  "https://github.com/pygame-community/"
-                  "pygame-ce/archive/{version}.tar.gz"
-              )
+    version = "2.4.0"
 
-              site_packages_name = "pygame-ce"
-              name = "pygame-ce"
+    url = (
+        "https://github.com/pygame-community/"
+        "pygame-ce/archive/{version}.tar.gz"
+    )
 
-              depends = [
-                  "sdl2",
-                  "sdl2_image",
-                  "sdl2_mixer",
-                  "sdl2_ttf",
-                  "setuptools",
-                  "jpeg",
-                  "png",
-              ]
+    site_packages_name = "pygame-ce"
 
-              call_hostpython_via_targetpython = False
+    name = "pygame-ce"
+
+    depends = [
+        "sdl2",
+        "sdl2_image",
+        "sdl2_mixer",
+        "sdl2_ttf",
+        "setuptools",
+        "jpeg",
+        "png",
+    ]
+
+    call_hostpython_via_targetpython = False
 
 
-          recipe = PygameCeRecipe()
-          PYTHON
+recipe = PygameCeRecipe()
+PYTHON
 
           echo "Recipe pygame-ce criada."
 
@@ -135,122 +140,142 @@ jobs:
           set -e
 
           python3 - "$SPEC" "$PROJECT_DIR" <<'PYTHON'
-          from pathlib import Path
-          import sys
+from pathlib import Path
+import sys
 
-          spec = Path(sys.argv[1])
-          project = Path(sys.argv[2]).resolve()
+spec = Path(sys.argv[1])
+project = Path(sys.argv[2]).resolve()
 
-          text = spec.read_text(
-              encoding="utf-8",
-              errors="replace"
-          )
+text = spec.read_text(
+    encoding="utf-8",
+    errors="replace"
+)
 
-          lines = text.splitlines()
+lines = text.splitlines()
 
-          if not any(line.strip() == "[app]" for line in lines):
-              lines.insert(0, "[app]")
-
-
-          def set_option(name, value):
-              global lines
-
-              section = None
-
-              for i, line in enumerate(lines):
-                  stripped = line.strip()
-
-                  if stripped.startswith("[") and stripped.endswith("]"):
-                      section = stripped.lower()
-                      continue
-
-                  if (
-                      section == "[app]"
-                      and stripped.startswith(name + " =")
-                  ):
-                      lines[i] = f"{name} = {value}"
-                      return
-
-              for i, line in enumerate(lines):
-                  if line.strip() == "[app]":
-                      lines.insert(
-                          i + 1,
-                          f"{name} = {value}"
-                      )
-                      return
+if not any(line.strip() == "[app]" for line in lines):
+    lines.insert(0, "[app]")
 
 
-          set_option("title", "Chapada Dragon")
-          set_option("package.name", "chapadadragon")
-          set_option("package.domain", "org.chapadadragon")
-          set_option("source.dir", project)
-          set_option("version", "0.1.0")
-          set_option("requirements", "python3,pygame-ce")
+def set_option(name, value):
+    global lines
 
-          set_option(
-              "source.include_exts",
-              "py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf"
-          )
+    section = None
 
-          set_option(
-              "android.archs",
-              "arm64-v8a"
-          )
+    for i, line in enumerate(lines):
+        stripped = line.strip()
 
-          set_option(
-              "android.accept_sdk_license",
-              "True"
-          )
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped.lower()
+            continue
 
-          recipe_dir = (
-              project / "p4a-recipes"
-          ).resolve()
+        if section == "[app]" and stripped.startswith(name + " ="):
+            lines[i] = f"{name} = {value}"
+            return
 
-          set_option(
-              "p4a.local_recipes",
-              recipe_dir
-          )
-
-          set_option(
-              "p4a.bootstrap",
-              "sdl2"
-          )
+    for i, line in enumerate(lines):
+        if line.strip() == "[app]":
+            lines.insert(
+                i + 1,
+                f"{name} = {value}"
+            )
+            return
 
 
-          new_lines = []
+set_option(
+    "title",
+    "Chapada Dragon"
+)
 
-          for line in lines:
-              stripped = line.strip()
+set_option(
+    "package.name",
+    "chapadadragon"
+)
 
-              if stripped.startswith("android.arch ="):
-                  continue
+set_option(
+    "package.domain",
+    "org.chapadadragon"
+)
 
-              if stripped.startswith("android.sdk ="):
-                  continue
+set_option(
+    "source.dir",
+    project
+)
 
-              if stripped.startswith("android.ndk ="):
-                  continue
+set_option(
+    "version",
+    "0.1.0"
+)
 
-              if stripped.startswith("android.ndk_api ="):
-                  continue
+set_option(
+    "requirements",
+    "python3,pygame-ce"
+)
 
-              new_lines.append(line)
+set_option(
+    "source.include_exts",
+    "py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf"
+)
 
-          lines = new_lines
+set_option(
+    "android.archs",
+    "arm64-v8a"
+)
 
-          spec.write_text(
-              "\n".join(lines) + "\n",
-              encoding="utf-8"
-          )
+set_option(
+    "android.accept_sdk_license",
+    "True"
+)
 
-          print(
-              spec.read_text(
-                  encoding="utf-8"
-              )
-          )
-          PYTHON
+recipe_dir = (
+    project / "p4a-recipes"
+).resolve()
 
-      - name: Limpar ambiente
+set_option(
+    "p4a.local_recipes",
+    recipe_dir
+)
+
+set_option(
+    "p4a.bootstrap",
+    "sdl2"
+)
+
+
+new_lines = []
+
+for line in lines:
+    stripped = line.strip()
+
+    if stripped.startswith("android.arch ="):
+        continue
+
+    if stripped.startswith("android.sdk ="):
+        continue
+
+    if stripped.startswith("android.ndk ="):
+        continue
+
+    if stripped.startswith("android.ndk_api ="):
+        continue
+
+    new_lines.append(line)
+
+lines = new_lines
+
+spec.write_text(
+    "\n".join(lines) + "\n",
+    encoding="utf-8"
+)
+
+print(
+    spec.read_text(
+        encoding="utf-8"
+    )
+)
+PYTHON
+
+      - name: Preparar ambiente
         shell: bash
         run: |
           set -e
@@ -260,4 +285,61 @@ jobs:
           rm -rf .buildozer
           rm -rf bin
 
-          echo "Ambiente limpo
+          echo "========================================"
+          echo "AMBIENTE PREPARADO"
+          echo "========================================"
+
+          echo "Projeto:"
+          pwd
+
+          echo "Buildozer:"
+          buildozer --version
+
+      - name: Compilar APK
+        shell: bash
+        run: |
+          set +e
+
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "CHAPADA DRAGON"
+          echo "COMPILANDO APK"
+          echo "========================================"
+
+          buildozer -v android debug 2>&1 | tee build.log
+
+          STATUS=${PIPESTATUS[0]}
+
+          echo ""
+          echo "========================================"
+          echo "ULTIMAS 250 LINHAS DO LOG"
+          echo "========================================"
+
+          tail -n 250 build.log
+
+          echo ""
+          echo "========================================"
+          echo "CODIGO FINAL: $STATUS"
+          echo "========================================"
+
+          exit $STATUS
+
+      - name: Procurar APK
+        shell: bash
+        run: |
+          echo "========================================"
+          echo "PROCURANDO APK"
+          echo "========================================"
+
+          find "$PROJECT_DIR/bin" \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chapada-Dragon-APK
+          path: ${{ env.PROJECT_DIR }}/bin/*.apk
+          if-no-files-found: error
