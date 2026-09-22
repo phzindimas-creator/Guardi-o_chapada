@@ -12,14 +12,12 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-
       - name: Baixar repositorio
         uses: actions/checkout@v4
 
       - name: Instalar dependencias
         run: |
           sudo apt-get update
-
           sudo apt-get install -y \
             python3-pip \
             python3-venv \
@@ -39,10 +37,7 @@ jobs:
       - name: Instalar Buildozer
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
-
-          python3 -m pip install \
-            buildozer==1.6.0 \
-            cython==0.29.37
+          python3 -m pip install buildozer==1.6.0 cython==0.29.37
 
       - name: Extrair projeto antigo
         shell: bash
@@ -61,12 +56,9 @@ jobs:
           if [ -n "$ZIP_FILE" ]; then
             echo "ZIP encontrado:"
             echo "$ZIP_FILE"
-
             unzip -o "$ZIP_FILE" -d projeto
           else
             echo "Nenhum ZIP encontrado."
-            echo "Usando os arquivos do repositorio."
-
             cp -R . projeto/
             rm -rf projeto/.git
           fi
@@ -83,12 +75,7 @@ jobs:
 
           if [ -z "$SPEC" ]; then
             echo "ERRO: buildozer.spec nao encontrado."
-
-            find projeto \
-              -maxdepth 6 \
-              -type f \
-              | head -n 300
-
+            find projeto -maxdepth 6 -type f | head -n 300
             exit 1
           fi
 
@@ -110,160 +97,35 @@ jobs:
           mkdir -p "$RECIPE_DIR"
 
           cat > "$RECIPE_DIR/__init__.py" <<'PYTHON'
-from os.path import join
-
-from pythonforandroid.recipe import CompiledComponentsPythonRecipe
-from pythonforandroid.toolchain import current_directory
+          from pythonforandroid.recipe import CompiledComponentsPythonRecipe
 
 
-class PygameCeRecipe(CompiledComponentsPythonRecipe):
+          class PygameCeRecipe(CompiledComponentsPythonRecipe):
+              version = "2.4.0"
 
-    version = "2.4.0"
+              url = (
+                  "https://github.com/pygame-community/"
+                  "pygame-ce/archive/{version}.tar.gz"
+              )
 
-    url = (
-        "https://github.com/pygame-community/"
-        "pygame-ce/archive/{version}.tar.gz"
-    )
+              site_packages_name = "pygame-ce"
+              name = "pygame-ce"
 
-    site_packages_name = "pygame-ce"
+              depends = [
+                  "sdl2",
+                  "sdl2_image",
+                  "sdl2_mixer",
+                  "sdl2_ttf",
+                  "setuptools",
+                  "jpeg",
+                  "png",
+              ]
 
-    name = "pygame-ce"
-
-    depends = [
-        "sdl2",
-        "sdl2_image",
-        "sdl2_mixer",
-        "sdl2_ttf",
-        "setuptools",
-        "jpeg",
-        "png",
-    ]
-
-    call_hostpython_via_targetpython = False
-
-    install_in_hostpython = False
-
-    def prebuild_arch(self, arch):
-
-        super().prebuild_arch(arch)
-
-        with current_directory(
-            self.get_build_dir(arch.arch)
-        ):
-
-            setup_template = open(
-                join(
-                    "buildconfig",
-                    "Setup.Android.SDL2.in"
-                )
-            ).read()
-
-            png = self.get_recipe(
-                "png",
-                self.ctx
-            )
-
-            png_lib_dir = join(
-                png.get_build_dir(arch.arch),
-                ".libs"
-            )
-
-            png_inc_dir = png.get_build_dir(
-                arch.arch
-            )
-
-            jpeg = self.get_recipe(
-                "jpeg",
-                self.ctx
-            )
-
-            jpeg_lib_dir = jpeg.get_build_dir(
-                arch.arch
-            )
-
-            jpeg_inc_dir = jpeg_lib_dir
-
-            sdl2_mixer = self.get_recipe(
-                "sdl2_mixer",
-                self.ctx
-            )
-
-            sdl_mixer_includes = ""
-
-            for include_dir in (
-                sdl2_mixer.get_include_dirs(arch)
-            ):
-                sdl_mixer_includes += (
-                    "-I"
-                    + include_dir
-                    + " "
-                )
-
-            setup_file = setup_template.format(
-
-                sdl_includes=(
-                    " -I"
-                    + join(
-                        self.ctx.bootstrap.build_dir,
-                        "jni",
-                        "SDL",
-                        "include"
-                    )
-                    + " -L"
-                    + join(
-                        self.ctx.bootstrap.build_dir,
-                        "libs",
-                        str(arch)
-                    )
-                    + " -L"
-                    + png_lib_dir
-                    + " -L"
-                    + jpeg_lib_dir
-                    + " -L"
-                    + arch.ndk_lib_dir_versioned
-                ),
-
-                sdl_ttf_includes=(
-                    "-I"
-                    + join(
-                        self.ctx.bootstrap.build_dir,
-                        "jni",
-                        "SDL2_ttf"
-                    )
-                ),
-
-                sdl_image_includes=(
-                    "-I"
-                    + join(
-                        self.ctx.bootstrap.build_dir,
-                        "jni",
-                        "SDL2_image"
-                    )
-                ),
-
-                sdl_mixer_includes=sdl_mixer_includes,
-
-                jpeg_includes=(
-                    "-I"
-                    + jpeg_inc_dir
-                ),
-
-                png_includes=(
-                    "-I"
-                    + png_inc_dir
-                ),
-
-                freetype_includes=""
-            )
-
-            open(
-                "Setup",
-                "w"
-            ).write(setup_file)
+              call_hostpython_via_targetpython = False
 
 
-recipe = PygameCeRecipe()
-PYTHON
+          recipe = PygameCeRecipe()
+          PYTHON
 
           echo "Recipe pygame-ce criada."
 
@@ -273,64 +135,129 @@ PYTHON
           set -e
 
           python3 - "$SPEC" "$PROJECT_DIR" <<'PYTHON'
-from pathlib import Path
-import sys
+          from pathlib import Path
+          import sys
 
-spec = Path(sys.argv[1])
-project = Path(sys.argv[2]).resolve()
+          spec = Path(sys.argv[1])
+          project = Path(sys.argv[2]).resolve()
 
-text = spec.read_text(
-    encoding="utf-8",
-    errors="replace"
-)
+          text = spec.read_text(
+              encoding="utf-8",
+              errors="replace"
+          )
 
-lines = text.splitlines()
+          lines = text.splitlines()
 
-if not any(
-    line.strip() == "[app]"
-    for line in lines
-):
-    lines.insert(0, "[app]")
+          if not any(line.strip() == "[app]" for line in lines):
+              lines.insert(0, "[app]")
 
 
-def set_option(name, value):
+          def set_option(name, value):
+              global lines
 
-    global lines
+              section = None
 
-    section = None
+              for i, line in enumerate(lines):
+                  stripped = line.strip()
 
-    for i, line in enumerate(lines):
+                  if stripped.startswith("[") and stripped.endswith("]"):
+                      section = stripped.lower()
+                      continue
 
-        stripped = line.strip()
+                  if (
+                      section == "[app]"
+                      and stripped.startswith(name + " =")
+                  ):
+                      lines[i] = f"{name} = {value}"
+                      return
 
-        if (
-            stripped.startswith("[")
-            and stripped.endswith("]")
-        ):
-            section = stripped.lower()
-            continue
-
-        if (
-            section == "[app]"
-            and stripped.startswith(name + " =")
-        ):
-            lines[i] = f"{name} = {value}"
-            return
-
-    for i, line in enumerate(lines):
-
-        if line.strip() == "[app]":
-            lines.insert(
-                i + 1,
-                f"{name} = {value}"
-            )
-            return
+              for i, line in enumerate(lines):
+                  if line.strip() == "[app]":
+                      lines.insert(
+                          i + 1,
+                          f"{name} = {value}"
+                      )
+                      return
 
 
-set_option(
-    "title",
-    "Chapada Dragon"
-)
+          set_option("title", "Chapada Dragon")
+          set_option("package.name", "chapadadragon")
+          set_option("package.domain", "org.chapadadragon")
+          set_option("source.dir", project)
+          set_option("version", "0.1.0")
+          set_option("requirements", "python3,pygame-ce")
 
-set_option(
-    "package.name",
+          set_option(
+              "source.include_exts",
+              "py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf"
+          )
+
+          set_option(
+              "android.archs",
+              "arm64-v8a"
+          )
+
+          set_option(
+              "android.accept_sdk_license",
+              "True"
+          )
+
+          recipe_dir = (
+              project / "p4a-recipes"
+          ).resolve()
+
+          set_option(
+              "p4a.local_recipes",
+              recipe_dir
+          )
+
+          set_option(
+              "p4a.bootstrap",
+              "sdl2"
+          )
+
+
+          new_lines = []
+
+          for line in lines:
+              stripped = line.strip()
+
+              if stripped.startswith("android.arch ="):
+                  continue
+
+              if stripped.startswith("android.sdk ="):
+                  continue
+
+              if stripped.startswith("android.ndk ="):
+                  continue
+
+              if stripped.startswith("android.ndk_api ="):
+                  continue
+
+              new_lines.append(line)
+
+          lines = new_lines
+
+          spec.write_text(
+              "\n".join(lines) + "\n",
+              encoding="utf-8"
+          )
+
+          print(
+              spec.read_text(
+                  encoding="utf-8"
+              )
+          )
+          PYTHON
+
+      - name: Limpar ambiente
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          rm -rf .buildozer
+          rm -rf bin
+
+          echo "Ambiente limpo
