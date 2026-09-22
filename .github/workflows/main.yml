@@ -2,7 +2,7 @@ name: Compilar APK com Buildozer 🐍📱
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -10,34 +10,65 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: 📥 Clonar repositório
+      # 1. 📥 Descarregar o repositório do GitHub
+      - name: Clonar repositório
         uses: actions/checkout@v4
 
-      - name: 🐍 Configurar Python
+      # 2. 📦 Descompactar ficheiro ZIP automaticamente (se existir)
+      - name: Descompactar ficheiro ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Ficheiro ZIP encontrado: $ZIP_FILE"
+            unzip -o "$ZIP_FILE"
+          else
+            echo "Nenhum ficheiro ZIP encontrado na raiz."
+          fi
+
+      # 3. 🐍 Configurar o ambiente Python 3.10
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: ☕ Configurar Java JDK 17
+      # 4. ☕ Configurar o Java JDK 17
+      - name: Configurar Java JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 🛠️ Instalar dependências e Buildozer
+      # 5. 🛠️ Instalar dependências do sistema e do Buildozer
+      - name: Instalar dependências e Buildozer
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libsqlite3-dev zlib1g-dev libssl-dev libffi-dev
+          sudo apt-get install -y build-essential libsqlite3-dev zlib1g-dev libssl-dev libffi-dev unzip
           pip install --upgrade pip
           pip install buildozer cython
 
-      - name: ⚙️ Aceitar Licenças e Compilar APK
+      # 6. ⚙️ Localizar o buildozer.spec, aceitar licenças e compilar o APK
+      - name: Aceitar Licenças e Compilar APK
         run: |
+          SPEC_PATH=$(find . -name "buildozer.spec" -print -quit)
+          
+          if [ -z "$SPEC_PATH" ]; then
+            echo "❌ ERRO: O ficheiro buildozer.spec não foi encontrado no repositório!"
+            exit 1
+          fi
+
+          DIR_PATH=$(dirname "$SPEC_PATH")
+          echo "📁 A entrar na pasta do projeto: $DIR_PATH"
+          cd "$DIR_PATH"
+
+          # Aceitar todas as licenças do Android SDK
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+          # Compilar o APK
           buildozer -v android debug
 
-      - name: 📦 Salvar APK compilado
+      # 7. 📥 Disponibilizar o APK para Download
+      - name: Guardar APK para Download
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: bin/*.apk
+          name: app-debug
+          path: '**/bin/*.apk'
