@@ -274,12 +274,30 @@ jobs:
           echo "COMPILANDO APK"
           echo "========================================"
 
-          buildozer -v android debug 2>&1 | tee build.log
+          buildozer -v android debug > build.log 2>&1
 
-          STATUS=${PIPESTATUS[0]}
+          STATUS=$?
 
           echo ""
           echo "========================================"
+          echo "ERROS ENCONTRADOS"
+          echo "========================================"
+
+          grep -iE "error:|fatal error|failed|exception|traceback|command failed" build.log | tail -n 80 || true
+
+          echo ""
+          echo "========================================"
+          echo "FINAL DO LOG"
+          echo "========================================"
+
+          tail -n 100 build.log
+
+          echo ""
+          echo "========================================"
+          echo "CODIGO FINAL: $STATUS"
+          echo "========================================"
+
+          exit $STATUSecho "CCCOMPILANDCOMCOMPILANCCOMPILANDCOM    echo "========================================"
           echo "ULTIMAS 250 LINHAS"
           echo "========================================"
 
