@@ -1,28 +1,72 @@
-name: Build Android APK
+name: Compilar APK com Buildozer 🐍📱
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout project
+      # 1. 📁 Descarregar o repositório
+      - name: Baixar repositório
         uses: actions/checkout@v4
 
-      - name: Build APK with Buildozer
+      # 2. 📦 Descompactar o ficheiro ZIP
+      - name: Descompactar ficheiro ZIP
         run: |
-          docker pull kivy/buildozer:latest
-          docker run --rm             -v "$PWD":/home/user/hostcwd             -w /home/user/hostcwd             kivy/buildozer:latest             android debug
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Ficheiro ZIP encontrado: $ZIP_FILE"
+            unzip -o "$ZIP_FILE"
+          else
+            echo "Nenhum ficheiro .zip foi encontrado!"
+            exit 1
+          fi
 
-      - name: Upload APK
+      # 3. ☕ Configurar o ambiente Java JDK 17 (necessário para o SDK do Android)
+      - name: Configurar Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 4. 🐍 Configurar o ambiente Python
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # 5. 🛠️ Instalar dependências do sistema e do Buildozer
+      - name: Instalar Buildozer e Cython
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache git libffi-dev libssl-dev libltdl-dev zlib1g-dev
+          pip install --upgrade pip
+          pip install buildozer cython
+
+      # 6. ⚙️ Compilar o APK com o Buildozer
+      - name: Compilar APK
+        run: |
+          # Procura a pasta onde está o ficheiro buildozer.spec
+          SPEC_FILE=$(find . -name "buildozer.spec" | head -n 1)
+          if [ -n "$SPEC_FILE" ]; then
+            DIR=$(dirname "$SPEC_FILE")
+            echo "Projeto Buildozer localizado na pasta: $DIR"
+            cd "$DIR"
+            # Executa a compilação e aceita as licenças do SDK automaticamente
+            yes | buildozer android debug
+          else
+            echo "ERRO: O ficheiro buildozer.spec não foi encontrado!"
+            exit 1
+          fi
+
+      # 7. 📥 Guardar o APK gerado
+      - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: guardian-chapada-apk
-          path: bin/*.apk
-          if-no-files-found: error
+          name: app-debug
+          path: '**/bin/*.apk'
