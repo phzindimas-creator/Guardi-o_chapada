@@ -50,13 +50,13 @@ jobs:
             buildozer==1.6.0 \
             cython==0.29.37
 
-      - name: Preparar projeto
+      - name: Encontrar projeto
         shell: bash
         run: |
           set -e
 
           echo "========================================"
-          echo "PROCURANDO BUILDOZER.SPEC"
+          echo "PROCURANDO PROJETO"
           echo "========================================"
 
           SPEC=$(find . \
@@ -65,12 +65,9 @@ jobs:
             ! -path "./.git/*" \
             | head -n 1 || true)
 
-          if [ -n "$SPEC" ]; then
-            echo "buildozer.spec encontrado:"
-            echo "$SPEC"
-          else
-            echo "buildozer.spec nao esta na raiz."
-            echo "Procurando ZIP do projeto..."
+          if [ -z "$SPEC" ]; then
+
+            echo "buildozer.spec nao encontrado na raiz."
 
             ZIP_FILE=$(find . \
               -type f \
@@ -80,8 +77,6 @@ jobs:
 
             if [ -z "$ZIP_FILE" ]; then
               echo "ERRO: nenhum ZIP encontrado."
-              echo "Arquivos encontrados:"
-              find . -maxdepth 5 -type f | head -n 300
               exit 1
             fi
 
@@ -97,26 +92,20 @@ jobs:
               -name "buildozer.spec" \
               | head -n 1 || true)
 
-            if [ -z "$SPEC" ]; then
-              echo "ERRO: o ZIP nao possui buildozer.spec."
+          fi
 
-              echo "Conteudo do ZIP extraido:"
-              find projeto -maxdepth 6 -type f | head -n 300
-
-              exit 1
-            fi
+          if [ -z "$SPEC" ]; then
+            echo "ERRO: buildozer.spec nao encontrado."
+            exit 1
           fi
 
           PROJECT_DIR=$(dirname "$SPEC")
 
-          echo "========================================"
-          echo "PROJETO ENCONTRADO"
-          echo "========================================"
-
-          echo "$PROJECT_DIR"
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "SPEC=$SPEC" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Projeto:"
+          echo "$PROJECT_DIR"
 
       - name: Preparar pygame-ce
         shell: bash
@@ -139,7 +128,7 @@ jobs:
           'recipe = PygameCeRecipe()' \
           > "$PROJECT_DIR/p4a-recipes/pygame-ce/__init__.py"
 
-          echo "Recipe pygame-ce criada."
+          echo "pygame-ce preparado."
 
       - name: Corrigir buildozer spec
         shell: bash
@@ -147,10 +136,6 @@ jobs:
           set -e
 
           cd "$PROJECT_DIR"
-
-          echo "========================================"
-          echo "CORRIGINDO BUILDOZER.SPEC"
-          echo "========================================"
 
           sed -i '/^[[:space:]]*android\.arch[[:space:]]*=/d' buildozer.spec
           sed -i '/^[[:space:]]*android\.sdk[[:space:]]*=/d' buildozer.spec
@@ -193,7 +178,71 @@ jobs:
           'p4a.bootstrap = sdl2' \
           >> buildozer.spec
 
-          echo "buildozer.spec pronto."
+          echo "buildozer.spec corrigido."
+
+      - name: Preparar Android SDK
+        shell: bash
+        run: |
+          set +e
+
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "PREPARANDO ANDROID SDK"
+          echo "========================================"
+
+          buildozer android p4a -- --help > sdk-setup.log 2>&1
+
+          echo "Buildozer terminou a preparacao inicial."
+
+          SDKMANAGER=$(find "$HOME/.buildozer" \
+            -type f \
+            -name "sdkmanager" \
+            | head -n 1)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager nao encontrado."
+
+            find "$HOME/.buildozer" \
+              -type f \
+              -name "sdkmanager*" \
+              | head -n 50
+
+            exit 1
+          fi
+
+          echo "sdkmanager encontrado:"
+          echo "$SDKMANAGER"
+
+          SDK_DIR=$(dirname "$(dirname "$(dirname "$SDKMANAGER")")")
+
+          echo "ANDROID SDK:"
+          echo "$SDK_DIR"
+
+          export ANDROIDSDK="$SDK_DIR"
+          export ANDROID_HOME="$SDK_DIR"
+
+          echo "ANDROIDSDK=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+
+          echo "========================================"
+          echo "ACEITANDO LICENCAS"
+          echo "========================================"
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          echo "========================================"
+          echo "INSTALANDO BUILD TOOLS"
+          echo "========================================"
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "build-tools;37.0.0" \
+            "platforms;android-36"
+
+          echo "========================================"
+          echo "SDK PRONTO"
+          echo "========================================"
 
       - name: Preparar ambiente
         shell: bash
@@ -202,13 +251,11 @@ jobs:
 
           cd "$PROJECT_DIR"
 
-          rm -rf .buildozer
+          rm -rf .buildozer/android/platform/build-arm64-v8a
+
           rm -rf bin
-          rm -f build.log
 
-          echo "Ambiente limpo."
-
-          buildozer --version
+          echo "Ambiente preparado."
 
       - name: Compilar APK
         shell: bash
@@ -228,13 +275,13 @@ jobs:
 
           echo ""
           echo "========================================"
-          echo "POSSIVEIS ERROS"
+          echo "ERROS"
           echo "========================================"
 
           grep -nEi \
-            "error:|fatal error|failed|exception|traceback|command failed|recipe.*failed" \
+            "error:|fatal error|failed|exception|traceback|command failed|license|aidl" \
             build.log \
-            | tail -n 100 || true
+            | tail -n 120 || true
 
           echo ""
           echo "========================================"
@@ -253,7 +300,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Chapada-Dragon-Build-Log
-          path: ${{ env.PROJECT_DIR }}/build.log
+          path: |
+            ${{ env.PROJECT_DIR }}/build.log
+            ${{ env.PROJECT_DIR }}/sdk-setup.log
           if-no-files-found: warn
 
       - name: Procurar APK
