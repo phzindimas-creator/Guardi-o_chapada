@@ -13,20 +13,35 @@ jobs:
 
     steps:
 
+      # ========================================
+      # 1. BAIXAR O PROJETO
+      # ========================================
+
       - name: Checkout
         uses: actions/checkout@v4
+
+
+      # ========================================
+      # 2. INSTALAR DEPENDENCIAS
+      # ========================================
 
       - name: Install dependencies
         shell: bash
         run: |
+          set -e
+
           sudo apt-get update
+
           sudo apt-get install -y \
             python3-pip \
             python3-venv \
+            python3.12 \
+            python3.12-venv \
             git \
             zip \
             unzip \
             curl \
+            wget \
             autoconf \
             automake \
             libtool \
@@ -35,25 +50,54 @@ jobs:
             libffi-dev \
             libssl-dev \
             zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            cmake \
             openjdk-17-jdk
+
+
+      # ========================================
+      # 3. INSTALAR BUILDOZER
+      # ========================================
 
       - name: Install Buildozer
         shell: bash
         run: |
+          set -e
+
           python3 -m pip install --upgrade pip setuptools wheel
-          python3 -m pip install buildozer==1.6.0 cython==0.29.37
+
+          python3 -m pip install \
+            buildozer==1.6.0 \
+            cython==0.29.37
+
+
+      # ========================================
+      # 4. ENCONTRAR O PROJETO
+      # ========================================
 
       - name: Find project
         shell: bash
         run: |
           set -e
 
-          SPEC=$(find . -type f -name "buildozer.spec" ! -path "./.git/*" | head -n 1 || true)
+          SPEC=$(find . \
+            -type f \
+            -name "buildozer.spec" \
+            ! -path "./.git/*" \
+            | head -n 1 || true)
 
           if [ -n "$SPEC" ]; then
+
             PROJECT_DIR=$(dirname "$SPEC")
+
           else
-            ZIP=$(find . -type f -iname "*.zip" ! -path "./.git/*" | head -n 1 || true)
+
+            ZIP=$(find . \
+              -type f \
+              -iname "*.zip" \
+              ! -path "./.git/*" \
+              | head -n 1 || true)
 
             if [ -z "$ZIP" ]; then
               echo "ERRO: projeto ou ZIP nao encontrado."
@@ -64,13 +108,25 @@ jobs:
 
             unzip -o "$ZIP" -d projeto
 
-            SPEC=$(find projeto -type f -name "buildozer.spec" | head -n 1 || true)
+            SPEC=$(find projeto \
+              -type f \
+              -name "buildozer.spec" \
+              | head -n 1 || true)
 
             if [ -n "$SPEC" ]; then
+
               PROJECT_DIR=$(dirname "$SPEC")
+
             else
-              PROJECT_DIR=$(find projeto -type f -name "main.py" -exec dirname {} \; | head -n 1 || true)
+
+              PROJECT_DIR=$(find projeto \
+                -type f \
+                -name "main.py" \
+                -exec dirname {} \; \
+                | head -n 1 || true)
+
             fi
+
           fi
 
           if [ -z "$PROJECT_DIR" ]; then
@@ -78,10 +134,18 @@ jobs:
             exit 1
           fi
 
-          echo "Projeto encontrado:"
+          echo "========================================"
+          echo "PROJETO ENCONTRADO"
+          echo "========================================"
+
           echo "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+
+      # ========================================
+      # 5. CRIAR BUILDOZER.SPEC
+      # ========================================
 
       - name: Create buildozer spec
         shell: bash
@@ -100,7 +164,7 @@ jobs:
             'source.dir = .' \
             'source.include_exts = py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf,obj,mtl' \
             'version = 0.1.0' \
-            'requirements = python3,pygame-ce,sdl2_image,sdl2_mixer,sdl2_ttf' \
+            'requirements = python3==3.12.10,pygame-ce,sdl2_image,sdl2_mixer,sdl2_ttf' \
             'orientation = landscape' \
             'fullscreen = 0' \
             'android.archs = arm64-v8a' \
@@ -108,6 +172,7 @@ jobs:
             'android.minapi = 24' \
             'android.accept_sdk_license = True' \
             'p4a.bootstrap = sdl2' \
+            'p4a.branch = master' \
             'p4a.local_recipes = p4a-recipes' \
             '' \
             '[buildozer]' \
@@ -115,13 +180,16 @@ jobs:
             'warn_on_root = 1' \
             > buildozer.spec
 
-          echo "buildozer.spec criado."
-
           echo "========================================"
-          echo "BUILD0ZER.SPEC"
+          echo "BUILDOZER.SPEC CRIADO"
           echo "========================================"
 
           cat buildozer.spec
+
+
+      # ========================================
+      # 6. RECEITA PYGAME-CE
+      # ========================================
 
       - name: Create pygame-ce recipe
         shell: bash
@@ -134,22 +202,221 @@ jobs:
 
           mkdir -p p4a-recipes/pygame-ce
 
-          curl -L \
-            "https://raw.githubusercontent.com/AnGlonchas/python-for-android/develop/pythonforandroid/recipes/pygame-ce/__init__.py" \
-            -o p4a-recipes/pygame-ce/__init__.py
+          cat > p4a-recipes/pygame-ce/__init__.py <<'PYRECIPE'
 
-          if [ ! -s p4a-recipes/pygame-ce/__init__.py ]; then
-            echo "ERRO: receita pygame-ce nao foi baixada."
-            exit 1
-          fi
+from os.path import join
+
+from pythonforandroid.recipe import CompiledComponentsPythonRecipe
+from pythonforandroid.toolchain import current_directory
+
+
+class Pygame2Recipe(CompiledComponentsPythonRecipe):
+
+    version = "2.4.0"
+
+    url = (
+        "https://github.com/pygame-community/"
+        "pygame-ce/archive/{version}.tar.gz"
+    )
+
+    site_packages_name = "pygame-ce"
+
+    name = "pygame-ce"
+
+    depends = [
+        "sdl2",
+        "sdl2_image",
+        "sdl2_mixer",
+        "sdl2_ttf",
+        "setuptools",
+        "jpeg",
+        "png",
+    ]
+
+    call_hostpython_via_targetpython = False
+
+    install_in_hostpython = False
+
+
+    def prebuild_arch(self, arch):
+
+        super().prebuild_arch(arch)
+
+        with current_directory(
+            self.get_build_dir(arch.arch)
+        ):
+
+            setup_template = open(
+                join(
+                    "buildconfig",
+                    "Setup.Android.SDL2.in"
+                )
+            ).read()
+
+            env = self.get_recipe_env(arch)
+
+            env["ANDROID_ROOT"] = join(
+                self.ctx.ndk.sysroot,
+                "usr"
+            )
+
+
+            png = self.get_recipe(
+                "png",
+                self.ctx
+            )
+
+            png_lib_dir = join(
+                png.get_build_dir(arch.arch),
+                ".libs"
+            )
+
+            png_inc_dir = png.get_build_dir(
+                arch
+            )
+
+
+            jpeg = self.get_recipe(
+                "jpeg",
+                self.ctx
+            )
+
+            jpeg_inc_dir = jpeg_lib_dir = (
+                jpeg.get_build_dir(arch.arch)
+            )
+
+
+            sdl_mixer_includes = ""
+
+            sdl2_mixer_recipe = self.get_recipe(
+                "sdl2_mixer",
+                self.ctx
+            )
+
+            for include_dir in (
+                sdl2_mixer_recipe
+                .get_include_dirs(arch)
+            ):
+
+                sdl_mixer_includes += (
+                    f"-I{include_dir} "
+                )
+
+
+            sdl_image_dir = join(
+                self.ctx.bootstrap.build_dir,
+                "jni",
+                "SDL2_image"
+            )
+
+            sdl_image_include_dir = join(
+                sdl_image_dir,
+                "include"
+            )
+
+
+            setup_file = setup_template.format(
+
+                sdl_includes=(
+                    " -I"
+                    + join(
+                        self.ctx.bootstrap.build_dir,
+                        "jni",
+                        "SDL",
+                        "include"
+                    )
+                    + " -L"
+                    + join(
+                        self.ctx.bootstrap.build_dir,
+                        "libs",
+                        str(arch)
+                    )
+                    + " -L"
+                    + png_lib_dir
+                    + " -L"
+                    + jpeg_lib_dir
+                    + " -L"
+                    + arch.ndk_lib_dir_versioned
+                ),
+
+
+                sdl_ttf_includes=(
+                    "-I"
+                    + join(
+                        self.ctx.bootstrap.build_dir,
+                        "jni",
+                        "SDL2_ttf"
+                    )
+                ),
+
+
+                sdl_image_includes=(
+                    "-I"
+                    + sdl_image_dir
+                    + " -I"
+                    + sdl_image_include_dir
+                ),
+
+
+                sdl_mixer_includes=(
+                    sdl_mixer_includes
+                ),
+
+
+                jpeg_includes=(
+                    "-I"
+                    + jpeg_inc_dir
+                ),
+
+
+                png_includes=(
+                    "-I"
+                    + png_inc_dir
+                ),
+
+
+                freetype_includes=""
+            )
+
+
+            open(
+                "Setup",
+                "w"
+            ).write(setup_file)
+
+
+    def get_recipe_env(self, arch):
+
+        env = super().get_recipe_env(
+            arch
+        )
+
+        env["USE_SDL2"] = "1"
+
+        env["PYGAME_CROSS_COMPILE"] = "TRUE"
+
+        env["PYGAME_ANDROID"] = "TRUE"
+
+        return env
+
+
+recipe = Pygame2Recipe()
+
+PYRECIPE
 
           echo "========================================"
-          echo "RECEITA PYGAME-CE"
+          echo "RECEITA PYGAME-CE CRIADA"
           echo "========================================"
 
-          head -n 40 p4a-recipes/pygame-ce/__init__.py
+          test -s p4a-recipes/pygame-ce/__init__.py
 
-          echo "Receita pygame-ce configurada."
+          head -n 30 \
+            p4a-recipes/pygame-ce/__init__.py
+
+
+      # ========================================
+      # 7. PREPARAR BUILDOZER
+      # ========================================
 
       - name: Initialize Buildozer
         shell: bash
@@ -159,6 +426,11 @@ jobs:
           cd "$PROJECT_DIR"
 
           buildozer android p4a -- --help || true
+
+
+      # ========================================
+      # 8. PREPARAR ANDROID SDK
+      # ========================================
 
       - name: Prepare Android SDK
         shell: bash
@@ -173,49 +445,122 @@ jobs:
           echo "ANDROIDSDK=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
 
-          SDKMANAGER=$(find "$HOME/.buildozer" -type f -name "sdkmanager" | head -n 1 || true)
+          SDKMANAGER=$(find \
+            "$HOME/.buildozer" \
+            -type f \
+            -name "sdkmanager" \
+            | head -n 1 || true)
 
           if [ -z "$SDKMANAGER" ]; then
             echo "ERRO: sdkmanager nao encontrado."
             exit 1
           fi
 
-          echo "Aceitando licencas do Android..."
+          echo "========================================"
+          echo "ACEITANDO LICENCAS ANDROID"
+          echo "========================================"
 
           yes | "$SDKMANAGER" \
             --sdk_root="$SDK_ROOT" \
             --licenses || true
 
-          echo "Instalando Android SDK..."
+          echo "========================================"
+          echo "INSTALANDO COMPONENTES ANDROID"
+          echo "========================================"
 
           "$SDKMANAGER" \
             --sdk_root="$SDK_ROOT" \
             "platform-tools" \
-            "build-tools;37.0.0" \
+            "build-tools;35.0.0" \
             "platforms;android-35"
 
-          if [ ! -x "$SDK_ROOT/build-tools/37.0.0/aapt" ]; then
+          echo "========================================"
+          echo "VERIFICANDO AAPT"
+          echo "========================================"
+
+          if [ ! -x \
+            "$SDK_ROOT/build-tools/35.0.0/aapt" \
+          ]; then
+
             echo "ERRO: aapt nao encontrado."
+
             exit 1
+
           fi
 
-          if [ ! -x "$SDK_ROOT/build-tools/37.0.0/aidl" ]; then
+          echo "========================================"
+          echo "VERIFICANDO AIDL"
+          echo "========================================"
+
+          if [ ! -x \
+            "$SDK_ROOT/build-tools/35.0.0/aidl" \
+          ]; then
+
             echo "ERRO: aidl nao encontrado."
+
             exit 1
+
           fi
 
-          echo "Android SDK OK."
+          echo "Android SDK preparado com sucesso."
 
-      - name: Build APK
+
+      # ========================================
+      # 9. ACEITAR LICENCAS NOVAMENTE
+      #    ANTES DO BUILD
+      # ========================================
+
+      - name: Accept Android licenses
+        shell: bash
+        run: |
+          set -e
+
+          SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
+
+          SDKMANAGER=$(find \
+            "$HOME/.buildozer" \
+            -type f \
+            -name "sdkmanager" \
+            | head -n 1 || true)
+
+          if [ -n "$SDKMANAGER" ]; then
+
+            yes | "$SDKMANAGER" \
+              --sdk_root="$SDK_ROOT" \
+              --licenses || true
+
+          fi
+
+          echo "Licencas verificadas."
+
+
+      # ========================================
+      # 10. LIMPAR BUILD ANTIGO
+      # ========================================
+
+      - name: Clean old build
         shell: bash
         run: |
           cd "$PROJECT_DIR"
 
           rm -rf bin
 
+          echo "Build antigo removido."
+
+
+      # ========================================
+      # 11. COMPILAR APK
+      # ========================================
+
+      - name: Build APK
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+
           set +e
 
-          buildozer -v android debug > build.log 2>&1
+          buildozer -v android debug \
+            > build.log 2>&1
 
           STATUS=$?
 
@@ -226,19 +571,27 @@ jobs:
 
           grep -nEi \
             "error:|fatal error|failed|exception|traceback|command failed|license|aidl" \
-            build.log | tail -n 150 || true
+            build.log \
+            | tail -n 200 || true
 
           echo ""
           echo "========================================"
           echo "FINAL DO LOG"
           echo "========================================"
 
-          tail -n 200 build.log
+          tail -n 250 build.log
 
           echo ""
+          echo "========================================"
           echo "CODIGO FINAL: $STATUS"
+          echo "========================================"
 
           exit $STATUS
+
+
+      # ========================================
+      # 12. GUARDAR LOG
+      # ========================================
 
       - name: Upload build log
         if: always()
@@ -247,6 +600,11 @@ jobs:
           name: Chapada-Dragon-Build-Log
           path: ${{ env.PROJECT_DIR }}/build.log
           if-no-files-found: warn
+
+
+      # ========================================
+      # 13. PROCURAR APK
+      # ========================================
 
       - name: Find APK
         if: success()
@@ -261,6 +619,24 @@ jobs:
             -name "*.apk" \
             -print
 
+          APK=$(find "$PROJECT_DIR/bin" \
+            -type f \
+            -name "*.apk" \
+            | head -n 1 || true)
+
+          if [ -z "$APK" ]; then
+            echo "ERRO: nenhum APK foi encontrado."
+            exit 1
+          fi
+
+          echo "APK ENCONTRADO:"
+          echo "$APK"
+
+
+      # ========================================
+      # 14. DISPONIBILIZAR APK PARA DOWNLOAD
+      # ========================================
+
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -268,3 +644,4 @@ jobs:
           name: Chapada-Dragon-APK
           path: ${{ env.PROJECT_DIR }}/bin/*.apk
           if-no-files-found: error
+          retention-days: 7
