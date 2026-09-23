@@ -88,9 +88,7 @@ jobs:
             | head -n 1 || true)
 
           if [ -n "$SPEC" ]; then
-
             PROJECT_DIR=$(dirname "$SPEC")
-
           else
 
             ZIP=$(find . \
@@ -114,19 +112,14 @@ jobs:
               | head -n 1 || true)
 
             if [ -n "$SPEC" ]; then
-
               PROJECT_DIR=$(dirname "$SPEC")
-
             else
-
               PROJECT_DIR=$(find projeto \
                 -type f \
                 -name "main.py" \
                 -exec dirname {} \; \
                 | head -n 1 || true)
-
             fi
-
           fi
 
           if [ -z "$PROJECT_DIR" ]; then
@@ -203,483 +196,55 @@ jobs:
           mkdir -p p4a-recipes/pygame-ce
 
           cat > p4a-recipes/pygame-ce/__init__.py <<'PYRECIPE'
+          from os.path import join
 
-from os.path import join
+          from pythonforandroid.recipe import CompiledComponentsPythonRecipe
+          from pythonforandroid.toolchain import current_directory
 
-from pythonforandroid.recipe import CompiledComponentsPythonRecipe
-from pythonforandroid.toolchain import current_directory
 
+          class Pygame2Recipe(CompiledComponentsPythonRecipe):
 
-class Pygame2Recipe(CompiledComponentsPythonRecipe):
+              version = "2.4.0"
 
-    version = "2.4.0"
+              url = (
+                  "https://github.com/pygame-community/"
+                  "pygame-ce/archive/{version}.tar.gz"
+              )
 
-    url = (
-        "https://github.com/pygame-community/"
-        "pygame-ce/archive/{version}.tar.gz"
-    )
+              site_packages_name = "pygame-ce"
 
-    site_packages_name = "pygame-ce"
+              name = "pygame-ce"
 
-    name = "pygame-ce"
+              depends = [
+                  "sdl2",
+                  "sdl2_image",
+                  "sdl2_mixer",
+                  "sdl2_ttf",
+                  "setuptools",
+                  "jpeg",
+                  "png",
+              ]
 
-    depends = [
-        "sdl2",
-        "sdl2_image",
-        "sdl2_mixer",
-        "sdl2_ttf",
-        "setuptools",
-        "jpeg",
-        "png",
-    ]
+              call_hostpython_via_targetpython = False
 
-    call_hostpython_via_targetpython = False
+              install_in_hostpython = False
 
-    install_in_hostpython = False
 
+              def prebuild_arch(self, arch):
 
-    def prebuild_arch(self, arch):
+                  super().prebuild_arch(arch)
 
-        super().prebuild_arch(arch)
+                  with current_directory(
+                      self.get_build_dir(arch.arch)
+                  ):
 
-        with current_directory(
-            self.get_build_dir(arch.arch)
-        ):
+                      setup_template = open(
+                          join(
+                              "buildconfig",
+                              "Setup.Android.SDL2.in"
+                          )
+                      ).read()
 
-            setup_template = open(
-                join(
-                    "buildconfig",
-                    "Setup.Android.SDL2.in"
-                )
-            ).read()
+                      env = self.get_recipe_env(arch)
 
-            env = self.get_recipe_env(arch)
-
-            env["ANDROID_ROOT"] = join(
-                self.ctx.ndk.sysroot,
-                "usr"
-            )
-
-
-            png = self.get_recipe(
-                "png",
-                self.ctx
-            )
-
-            png_lib_dir = join(
-                png.get_build_dir(arch.arch),
-                ".libs"
-            )
-
-            png_inc_dir = png.get_build_dir(
-                arch
-            )
-
-
-            jpeg = self.get_recipe(
-                "jpeg",
-                self.ctx
-            )
-
-            jpeg_inc_dir = jpeg_lib_dir = (
-                jpeg.get_build_dir(arch.arch)
-            )
-
-
-            sdl_mixer_includes = ""
-
-            sdl2_mixer_recipe = self.get_recipe(
-                "sdl2_mixer",
-                self.ctx
-            )
-
-            for include_dir in (
-                sdl2_mixer_recipe
-                .get_include_dirs(arch)
-            ):
-
-                sdl_mixer_includes += (
-                    f"-I{include_dir} "
-                )
-
-
-            sdl_image_dir = join(
-                self.ctx.bootstrap.build_dir,
-                "jni",
-                "SDL2_image"
-            )
-
-            sdl_image_include_dir = join(
-                sdl_image_dir,
-                "include"
-            )
-
-
-            setup_file = setup_template.format(
-
-                sdl_includes=(
-                    " -I"
-                    + join(
-                        self.ctx.bootstrap.build_dir,
-                        "jni",
-                        "SDL",
-                        "include"
-                    )
-                    + " -L"
-                    + join(
-                        self.ctx.bootstrap.build_dir,
-                        "libs",
-                        str(arch)
-                    )
-                    + " -L"
-                    + png_lib_dir
-                    + " -L"
-                    + jpeg_lib_dir
-                    + " -L"
-                    + arch.ndk_lib_dir_versioned
-                ),
-
-
-                sdl_ttf_includes=(
-                    "-I"
-                    + join(
-                        self.ctx.bootstrap.build_dir,
-                        "jni",
-                        "SDL2_ttf"
-                    )
-                ),
-
-
-                sdl_image_includes=(
-                    "-I"
-                    + sdl_image_dir
-                    + " -I"
-                    + sdl_image_include_dir
-                ),
-
-
-                sdl_mixer_includes=(
-                    sdl_mixer_includes
-                ),
-
-
-                jpeg_includes=(
-                    "-I"
-                    + jpeg_inc_dir
-                ),
-
-
-                png_includes=(
-                    "-I"
-                    + png_inc_dir
-                ),
-
-
-                freetype_includes=""
-            )
-
-
-            open(
-                "Setup",
-                "w"
-            ).write(setup_file)
-
-
-    def get_recipe_env(self, arch):
-
-        env = super().get_recipe_env(
-            arch
-        )
-
-        env["USE_SDL2"] = "1"
-
-        env["PYGAME_CROSS_COMPILE"] = "TRUE"
-
-        env["PYGAME_ANDROID"] = "TRUE"
-
-        return env
-
-
-recipe = Pygame2Recipe()
-
-PYRECIPE
-
-          echo "========================================"
-          echo "RECEITA PYGAME-CE CRIADA"
-          echo "========================================"
-
-          test -s p4a-recipes/pygame-ce/__init__.py
-
-          head -n 30 \
-            p4a-recipes/pygame-ce/__init__.py
-
-
-      # ========================================
-      # 7. PREPARAR BUILDOZER
-      # ========================================
-
-      - name: Initialize Buildozer
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          buildozer android p4a -- --help || true
-
-
-      # ========================================
-      # 8. PREPARAR ANDROID SDK
-      # ========================================
-
-      - name: Prepare Android SDK
-        shell: bash
-        run: |
-          set -e
-
-          SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-
-          export ANDROIDSDK="$SDK_ROOT"
-          export ANDROID_HOME="$SDK_ROOT"
-
-          echo "ANDROIDSDK=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-
-          SDKMANAGER=$(find \
-            "$HOME/.buildozer" \
-            -type f \
-            -name "sdkmanager" \
-            | head -n 1 || true)
-
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERRO: sdkmanager nao encontrado."
-            exit 1
-          fi
-
-          echo "========================================"
-          echo "ACEITANDO LICENCAS ANDROID"
-          echo "========================================"
-
-          yes | "$SDKMANAGER" \
-            --sdk_root="$SDK_ROOT" \
-            --licenses || true
-
-          echo "========================================"
-          echo "INSTALANDO COMPONENTES ANDROID"
-          echo "========================================"
-
-          "$SDKMANAGER" \
-            --sdk_root="$SDK_ROOT" \
-            "platform-tools" \
-            "build-tools;35.0.0" \
-            "platforms;android-35"
-
-          echo "========================================"
-          echo "VERIFICANDO AAPT"
-          echo "========================================"
-
-          if [ ! -x \
-            "$SDK_ROOT/build-tools/35.0.0/aapt" \
-          ]; then
-
-            echo "ERRO: aapt nao encontrado."
-
-            exit 1
-
-          fi
-
-          echo "========================================"
-          echo "VERIFICANDO AIDL"
-          echo "========================================"
-
-          if [ ! -x \
-            "$SDK_ROOT/build-tools/35.0.0/aidl" \
-          ]; then
-
-            echo "ERRO: aidl nao encontrado."
-
-            exit 1
-
-          fi
-
-          echo "Android SDK preparado com sucesso."
-
-
-      # ========================================
-      # 9. ACEITAR LICENCAS NOVAMENTE
-      #    ANTES DO BUILD
-      # ========================================
-
-      - name: Accept Android licenses
-        shell: bash
-        run: |
-          set -e
-
-          SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-
-          SDKMANAGER=$(find \
-            "$HOME/.buildozer" \
-            -type f \
-            -name "sdkmanager" \
-            | head -n 1 || true)
-
-          if [ -n "$SDKMANAGER" ]; then
-
-            yes | "$SDKMANAGER" \
-              --sdk_root="$SDK_ROOT" \
-              --licenses || true
-
-          fi
-
-          echo "Licencas verificadas."
-
-
-      # ========================================
-      # 10. LIMPAR BUILD ANTIGO
-      # ========================================
-
-      - name: Clean old build
-        shell: bash
-        run: |
-          cd "$PROJECT_DIR"
-
-          rm -rf bin
-
-          echo "Build antigo removido."
-
-
-      # ========================================
-      # 11. COMPILAR APK
-      # ========================================
-
-      - name: Build APK
-        shell: bash
-        run: |
-          cd "$PROJECT_DIR"
-
-          set +e
-
-          buildozer -v android debug \
-            > build.log 2>&1
-
-          STATUS=$?
-
-          echo ""
-          echo "========================================"
-          echo "ERROS IMPORTANTES"
-          echo "========================================"
-
-          grep -nEi \
-            "error:|fatal error|failed|exception|traceback|command failed|license|aidl" \
-            build.log \
-            | tail -n 200 || true
-
-          echo ""
-          echo "========================================"
-          echo "FINAL DO LOG"
-          echo "========================================"
-
-          tail -n 250 build.log
-
-          echo ""
-          echo "========================================"
-          echo "CODIGO FINAL: $STATUS"
-          echo "========================================"
-
-          exit $STATUS
-
-
-      # ========================================
-      # 12. GUARDAR LOG
-      # ========================================
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Chapada-Dragon-Build-Log
-          path: ${{ env.PROJECT_DIR }}/build.log
-          if-no-files-found: warn
-          retention-days: 7
-
-
-      # ========================================
-      # 13. PROCURAR APK
-      # ========================================
-
-      - name: Find APK
-        if: always()
-        shell: bash
-        run: |
-          echo "========================================"
-          echo "PROCURANDO APK"
-          echo "========================================"
-
-          echo "Arquivos APK encontrados:"
-          
-          find "$GITHUB_WORKSPACE" \
-            -type f \
-            -name "*.apk" \
-            ! -path "*/.git/*" \
-            -print || true
-
-          APK=$(find "$PROJECT_DIR/bin" \
-            -type f \
-            -name "*.apk" \
-            | head -n 1 || true)
-
-          if [ -z "$APK" ]; then
-
-            echo ""
-            echo "Nenhum APK encontrado em bin."
-            echo "Procurando em todo o projeto..."
-
-            APK=$(find "$GITHUB_WORKSPACE" \
-              -type f \
-              -name "*.apk" \
-              ! -path "*/.git/*" \
-              | head -n 1 || true)
-
-          fi
-
-          if [ -z "$APK" ]; then
-            echo ""
-            echo "========================================"
-            echo "NENHUM APK FOI ENCONTRADO"
-            echo "========================================"
-            echo "A compilacao precisa terminar com sucesso"
-            echo "para que o APK possa ser disponibilizado."
-            exit 0
-          fi
-
-          echo ""
-          echo "========================================"
-          echo "APK ENCONTRADO"
-          echo "========================================"
-
-          echo "$APK"
-
-          mkdir -p "$GITHUB_WORKSPACE/apk-output"
-
-          cp "$APK" \
-            "$GITHUB_WORKSPACE/apk-output/Chapada-Dragon.apk"
-
-          echo ""
-          echo "APK preparado para download:"
-          
-          ls -lh \
-            "$GITHUB_WORKSPACE/apk-output/Chapada-Dragon.apk"
-
-
-      # ========================================
-      # 14. DISPONIBILIZAR APK PARA DOWNLOAD
-      # ========================================
-
-      - name: Upload APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Chapada-Dragon-APK
-          path: ${{ github.workspace }}/apk-output/Chapada-Dragon.apk
-          if-no-files-found: warn
-          retention-days: 7
+                      env["ANDROID_ROOT
