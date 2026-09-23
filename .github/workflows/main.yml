@@ -12,70 +12,34 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Baixar repositorio
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Instalar dependencias
-        shell: bash
+      - name: Install dependencies
         run: |
-          set -e
-
           sudo apt-get update
+          sudo apt-get install -y python3-pip python3-venv git zip unzip autoconf automake libtool pkg-config libltdl-dev libffi-dev libssl-dev zlib1g-dev openjdk-17-jdk
 
-          sudo apt-get install -y \
-            python3-pip \
-            python3-venv \
-            git \
-            zip \
-            unzip \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            libltdl-dev \
-            libffi-dev \
-            libssl-dev \
-            zlib1g-dev \
-            openjdk-17-jdk
-
-      - name: Instalar Buildozer
-        shell: bash
+      - name: Install Buildozer
         run: |
-          set -e
-
           python3 -m pip install --upgrade pip setuptools wheel
+          python3 -m pip install buildozer==1.6.0 cython==0.29.37
 
-          python3 -m pip install \
-            buildozer==1.6.0 \
-            cython==0.29.37
-
-      - name: Encontrar projeto
+      - name: Find project
         shell: bash
         run: |
-          set -e
-
-          echo "========================================"
-          echo "PROCURANDO PROJETO"
-          echo "========================================"
-
           SPEC=$(find . -type f -name "buildozer.spec" ! -path "./.git/*" | head -n 1 || true)
 
           if [ -z "$SPEC" ]; then
-            echo "buildozer.spec nao encontrado."
+            ZIP=$(find . -type f -iname "*.zip" ! -path "./.git/*" | head -n 1 || true)
 
-            ZIP_FILE=$(find . -type f -iname "*.zip" ! -path "./.git/*" | head -n 1 || true)
-
-            if [ -z "$ZIP_FILE" ]; then
-              echo "ERRO: nenhum ZIP encontrado."
+            if [ -z "$ZIP" ]; then
+              echo "ERRO: buildozer.spec e ZIP nao encontrados."
               exit 1
             fi
 
-            echo "ZIP encontrado:"
-            echo "$ZIP_FILE"
-
             mkdir -p projeto
-
-            unzip -o "$ZIP_FILE" -d projeto
+            unzip -o "$ZIP" -d projeto
 
             SPEC=$(find projeto -type f -name "buildozer.spec" | head -n 1 || true)
           fi
@@ -87,150 +51,65 @@ jobs:
 
           PROJECT_DIR=$(dirname "$SPEC")
 
-          echo "Projeto encontrado:"
-          echo "$PROJECT_DIR"
-
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Preparar pygame-ce
+          echo "Projeto:"
+          echo "$PROJECT_DIR"
+
+      - name: Configure buildozer
         shell: bash
         run: |
-          set -e
-
-          mkdir -p "$PROJECT_DIR/p4a-recipes/pygame-ce"
-
-          cat > "$PROJECT_DIR/p4a-recipes/pygame-ce/__init__.py" <<'PYTHON'
-from pythonforandroid.recipe import CompiledComponentsPythonRecipe
-
-
-class PygameCeRecipe(CompiledComponentsPythonRecipe):
-    version = "2.4.0"
-
-    url = "https://github.com/pygame-community/pygame-ce/archive/{version}.tar.gz"
-
-    site_packages_name = "pygame"
-
-    depends = [
-        "sdl2",
-        "sdl2_image",
-        "sdl2_mixer",
-        "sdl2_ttf",
-        "setuptools",
-        "jpeg",
-        "png",
-    ]
-
-
-recipe = PygameCeRecipe()
-PYTHON
-
-          echo "pygame-ce preparado."
-
-      - name: Corrigir buildozer spec
-        shell: bash
-        run: |
-          set -e
-
           cd "$PROJECT_DIR"
 
-          python3 - <<'PYTHON'
-from pathlib import Path
+          sed -i '/^title[ ]*=/d' buildozer.spec
+          sed -i '/^package.name[ ]*=/d' buildozer.spec
+          sed -i '/^package.domain[ ]*=/d' buildozer.spec
+          sed -i '/^source.dir[ ]*=/d' buildozer.spec
+          sed -i '/^version[ ]*=/d' buildozer.spec
+          sed -i '/^requirements[ ]*=/d' buildozer.spec
+          sed -i '/^source.include_exts[ ]*=/d' buildozer.spec
+          sed -i '/^android.arch[ ]*=/d' buildozer.spec
+          sed -i '/^android.archs[ ]*=/d' buildozer.spec
+          sed -i '/^android.api[ ]*=/d' buildozer.spec
+          sed -i '/^android.minapi[ ]*=/d' buildozer.spec
+          sed -i '/^android.accept_sdk_license[ ]*=/d' buildozer.spec
+          sed -i '/^p4a.local_recipes[ ]*=/d' buildozer.spec
+          sed -i '/^p4a.bootstrap[ ]*=/d' buildozer.spec
 
-path = Path("buildozer.spec")
+          printf '%s\n' \
+            'title = Chapada Dragon' \
+            'package.name = chapadadragon' \
+            'package.domain = org.chapadadragon' \
+            'source.dir = .' \
+            'version = 0.1.0' \
+            'requirements = python3,pygame-ce' \
+            'source.include_exts = py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf' \
+            'android.archs = arm64-v8a' \
+            'android.api = 35' \
+            'android.minapi = 24' \
+            'android.accept_sdk_license = True' \
+            'p4a.local_recipes = p4a-recipes' \
+            'p4a.bootstrap = sdl2' >> buildozer.spec
 
-text = path.read_text(
-    encoding="utf-8",
-    errors="replace"
-)
+          mkdir -p p4a-recipes/pygame-ce
 
-lines = text.splitlines()
+          printf '%s\n' \
+            'from pythonforandroid.recipe import CompiledComponentsPythonRecipe' \
+            '' \
+            'class PygameCeRecipe(CompiledComponentsPythonRecipe):' \
+            '    version = "2.4.0"' \
+            '    url = "https://github.com/pygame-community/pygame-ce/archive/{version}.tar.gz"' \
+            '    site_packages_name = "pygame"' \
+            '    depends = ["sdl2", "sdl2_image", "sdl2_mixer", "sdl2_ttf", "setuptools", "jpeg", "png"]' \
+            '' \
+            'recipe = PygameCeRecipe()' \
+            > p4a-recipes/pygame-ce/__init__.py
 
-if "[app]" not in lines:
-    lines.insert(0, "[app]")
+          echo "buildozer.spec configurado."
 
-start = lines.index("[app]")
-end = len(lines)
-
-for i in range(start + 1, len(lines)):
-    if lines[i].strip().startswith("[") and lines[i].strip().endswith("]"):
-        end = i
-        break
-
-app_lines = lines[start + 1:end]
-
-options = {
-    "title": "Chapada Dragon",
-    "package.name": "chapadadragon",
-    "package.domain": "org.chapadadragon",
-    "source.dir": ".",
-    "version": "0.1.0",
-    "requirements": "python3,pygame-ce",
-    "source.include_exts": "py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf",
-    "android.archs": "arm64-v8a",
-    "android.api": "35",
-    "android.minapi": "24",
-    "android.accept_sdk_license": "True",
-    "p4a.local_recipes": "p4a-recipes",
-    "p4a.bootstrap": "sdl2",
-}
-
-clean = []
-
-for line in app_lines:
-    stripped = line.strip()
-
-    remove = False
-
-    for key in options:
-        if stripped.startswith(key + "="):
-            remove = True
-
-        if stripped.startswith(key + " ="):
-            remove = True
-
-    if stripped.startswith("android.arch ="):
-        remove = True
-
-    if stripped.startswith("android.sdk ="):
-        remove = True
-
-    if stripped.startswith("android.ndk ="):
-        remove = True
-
-    if stripped.startswith("android.ndk_api ="):
-        remove = True
-
-    if not remove:
-        clean.append(line)
-
-for key, value in options.items():
-    clean.append(f"{key} = {value}")
-
-new_lines = (
-    lines[:start + 1]
-    + clean
-    + lines[end:]
-)
-
-path.write_text(
-    "\n".join(new_lines) + "\n",
-    encoding="utf-8"
-)
-
-print("buildozer.spec corrigido.")
-PYTHON
-
-          echo "========================================"
-          echo "BUILDOSER.SPEC"
-          echo "========================================"
-
-          cat buildozer.spec
-
-      - name: Preparar Android SDK
+      - name: Prepare Android SDK
         shell: bash
         run: |
-          set -e
-
           SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
 
           export ANDROIDSDK="$SDK_ROOT"
@@ -239,36 +118,18 @@ PYTHON
           echo "ANDROIDSDK=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
 
-          mkdir -p "$SDK_ROOT"
-
           cd "$PROJECT_DIR"
-
-          echo "Inicializando ambiente Android..."
 
           buildozer android p4a -- --help || true
 
-          echo "Procurando sdkmanager..."
-
-          SDKMANAGER=$(find "$HOME/.buildozer" \
-            -type f \
-            -name "sdkmanager" \
-            | head -n 1 || true)
+          SDKMANAGER=$(find "$HOME/.buildozer" -type f -name "sdkmanager" | head -n 1 || true)
 
           if [ -z "$SDKMANAGER" ]; then
             echo "ERRO: sdkmanager nao encontrado."
             exit 1
           fi
 
-          echo "SDKMANAGER:"
-          echo "$SDKMANAGER"
-
-          echo "Aceitando licencas..."
-
-          yes | "$SDKMANAGER" \
-            --sdk_root="$SDK_ROOT" \
-            --licenses || true
-
-          echo "Instalando Android SDK..."
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses || true
 
           "$SDKMANAGER" \
             --sdk_root="$SDK_ROOT" \
@@ -276,68 +137,41 @@ PYTHON
             "build-tools;37.0.0" \
             "platforms;android-35"
 
-          echo "Verificando AAPT..."
-
           test -x "$SDK_ROOT/build-tools/37.0.0/aapt"
-
-          echo "AAPT encontrado."
-
-          echo "Verificando AIDL..."
-
           test -x "$SDK_ROOT/build-tools/37.0.0/aidl"
 
-          echo "AIDL encontrado."
+          echo "Android SDK OK."
 
-      - name: Limpar compilacao anterior
+      - name: Build APK
         shell: bash
         run: |
-          set -e
-
           cd "$PROJECT_DIR"
 
           rm -rf bin
 
-          echo "Limpeza concluida."
-
-      - name: Compilar APK
-        shell: bash
-        run: |
           set +e
-
-          cd "$PROJECT_DIR"
-
-          echo "========================================"
-          echo "CHAPADA DRAGON"
-          echo "COMPILANDO APK"
-          echo "========================================"
 
           buildozer -v android debug > build.log 2>&1
 
           STATUS=$?
 
-          echo ""
-          echo "========================================"
-          echo "ERROS IMPORTANTES"
-          echo "========================================"
+          echo "=============================="
+          echo "ERROS"
+          echo "=============================="
 
-          grep -nEi \
-            "error:|fatal error|failed|exception|traceback|command failed|license|aidl" \
-            build.log \
-            | tail -n 150 || true
+          grep -nEi "error:|fatal error|failed|exception|traceback|command failed|license|aidl" build.log | tail -n 150 || true
 
-          echo ""
-          echo "========================================"
+          echo "=============================="
           echo "FINAL DO LOG"
-          echo "========================================"
+          echo "=============================="
 
           tail -n 200 build.log
 
-          echo ""
           echo "CODIGO FINAL: $STATUS"
 
           exit $STATUS
 
-      - name: Salvar log
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -345,20 +179,12 @@ PYTHON
           path: ${{ env.PROJECT_DIR }}/build.log
           if-no-files-found: warn
 
-      - name: Procurar APK
+      - name: Find APK
         if: success()
-        shell: bash
         run: |
-          echo "========================================"
-          echo "APK GERADO"
-          echo "========================================"
+          find "$PROJECT_DIR/bin" -type f -name "*.apk" -print
 
-          find "$PROJECT_DIR/bin" \
-            -type f \
-            -name "*.apk" \
-            -print
-
-      - name: Disponibilizar APK
+      - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
