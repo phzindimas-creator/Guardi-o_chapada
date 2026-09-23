@@ -20,7 +20,22 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip python3-venv git zip unzip autoconf automake libtool pkg-config libltdl-dev libffi-dev libssl-dev zlib1g-dev openjdk-17-jdk
+          sudo apt-get install -y \
+            python3-pip \
+            python3-venv \
+            git \
+            zip \
+            unzip \
+            curl \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            libltdl-dev \
+            libffi-dev \
+            libssl-dev \
+            zlib1g-dev \
+            openjdk-17-jdk
 
       - name: Install Buildozer
         shell: bash
@@ -63,170 +78,3 @@ jobs:
           fi
 
           echo "Projeto encontrado:"
-          echo "$PROJECT_DIR"
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Create buildozer spec
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          rm -f buildozer.spec
-
-          printf '%s\n' \
-            '[app]' \
-            'title = Chapada Dragon' \
-            'package.name = chapadadragon' \
-            'package.domain = org.chapadadragon' \
-            'source.dir = .' \
-            'source.include_exts = py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf,obj,mtl' \
-            'version = 0.1.0' \
-            'requirements = python3,pygame-ce' \
-            'orientation = landscape' \
-            'fullscreen = 0' \
-            'android.archs = arm64-v8a' \
-            'android.api = 35' \
-            'android.minapi = 24' \
-            'android.accept_sdk_license = True' \
-            'p4a.bootstrap = sdl2' \
-            'p4a.local_recipes = p4a-recipes' \
-            '' \
-            '[buildozer]' \
-            'log_level = 2' \
-            'warn_on_root = 1' \
-            > buildozer.spec
-
-          echo "buildozer.spec criado."
-
-      - - name: Create pygame-ce recipe
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          rm -rf p4a-recipes
-          mkdir -p p4a-recipes/pygame-ce
-
-          curl -L \
-            "https://raw.githubusercontent.com/kivy/python-for-android/develop/pythonforandroid/recipes/pygame-ce/__init__.py" \
-            -o p4a-recipes/pygame-ce/__init__.py
-
-          echo "Receita pygame-ce baixada."
-
-          if [ ! -s p4a-recipes/pygame-ce/__init__.py ]; then
-            echo "ERRO: receita pygame-ce nao foi baixada."
-            exit 1
-          fi
-
-          echo "Corrigindo caminhos SDL2..."
-
-          python3 -c "from pathlib import Path; p=Path('p4a-recipes/pygame-ce/__init__.py'); s=p.read_text(); s=s.replace(\"sdl_image_includes=\\\"-I\\\"+join(self.ctx.bootstrap.build_dir, 'jni', 'SDL2_image'),\", \"sdl_image_includes=\\\"-I\\\"+join(self.ctx.bootstrap.build_dir, 'jni', 'SDL2_image') + \\\" -I\\\" + join(self.ctx.bootstrap.build_dir, 'jni', 'SDL2_image', 'include'),\"); p.write_text(s)"
-
-          echo "Receita configurada."
-
-          grep -n "sdl_image_includes" \
-            p4a-recipes/pygame-ce/__init__.py
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          buildozer android p4a -- --help || true
-
-      - name: Prepare Android SDK
-        shell: bash
-        run: |
-          set -e
-
-          SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-
-          export ANDROIDSDK="$SDK_ROOT"
-          export ANDROID_HOME="$SDK_ROOT"
-
-          echo "ANDROIDSDK=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-
-          SDKMANAGER=$(find "$HOME/.buildozer" -type f -name "sdkmanager" | head -n 1 || true)
-
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERRO: sdkmanager nao encontrado."
-            exit 1
-          fi
-
-          echo "Aceitando licencas..."
-
-          yes | "$SDKMANAGER" \
-            --sdk_root="$SDK_ROOT" \
-            --licenses || true
-
-          echo "Instalando Android SDK..."
-
-          "$SDKMANAGER" \
-            --sdk_root="$SDK_ROOT" \
-            "platform-tools" \
-            "build-tools;37.0.0" \
-            "platforms;android-35"
-
-          test -x "$SDK_ROOT/build-tools/37.0.0/aapt"
-          test -x "$SDK_ROOT/build-tools/37.0.0/aidl"
-
-          echo "Android SDK OK."
-
-      - name: Build APK
-        shell: bash
-        run: |
-          cd "$PROJECT_DIR"
-
-          rm -rf bin
-
-          set +e
-
-          buildozer -v android debug > build.log 2>&1
-
-          STATUS=$?
-
-          echo ""
-          echo "========================================"
-          echo "ERROS IMPORTANTES"
-          echo "========================================"
-
-          grep -nEi "error:|fatal error|failed|exception|traceback|command failed|license|aidl" build.log | tail -n 150 || true
-
-          echo ""
-          echo "========================================"
-          echo "FINAL DO LOG"
-          echo "========================================"
-
-          tail -n 200 build.log
-
-          echo ""
-          echo "CODIGO FINAL: $STATUS"
-
-          exit $STATUS
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Chapada-Dragon-Build-Log
-          path: ${{ env.PROJECT_DIR }}/build.log
-          if-no-files-found: warn
-
-      - name: Find APK
-        if: success()
-        shell: bash
-        run: |
-          find "$PROJECT_DIR/bin" -type f -name "*.apk" -print
-
-      - name: Upload APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Chapada-Dragon-APK
-          path: ${{ env.PROJECT_DIR }}/bin/*.apk
-          if-no-files-found: error
