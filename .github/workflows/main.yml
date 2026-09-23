@@ -16,11 +16,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-pip python3-venv git zip unzip autoconf automake libtool pkg-config libltdl-dev libffi-dev libssl-dev zlib1g-dev openjdk-17-jdk
 
       - name: Install Buildozer
+        shell: bash
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
           python3 -m pip install buildozer==1.6.0 cython==0.29.37
@@ -30,11 +32,13 @@ jobs:
         run: |
           SPEC=$(find . -type f -name "buildozer.spec" ! -path "./.git/*" | head -n 1 || true)
 
-          if [ -z "$SPEC" ]; then
+          if [ -n "$SPEC" ]; then
+            PROJECT_DIR=$(dirname "$SPEC")
+          else
             ZIP=$(find . -type f -iname "*.zip" ! -path "./.git/*" | head -n 1 || true)
 
             if [ -z "$ZIP" ]; then
-              echo "ERRO: buildozer.spec e ZIP nao encontrados."
+              echo "ERRO: projeto e ZIP nao encontrados."
               exit 1
             fi
 
@@ -42,55 +46,79 @@ jobs:
             unzip -o "$ZIP" -d projeto
 
             SPEC=$(find projeto -type f -name "buildozer.spec" | head -n 1 || true)
+
+            if [ -n "$SPEC" ]; then
+              PROJECT_DIR=$(dirname "$SPEC")
+            else
+              PROJECT_DIR=$(find projeto -type f -name "main.py" -exec dirname {} \; | head -n 1 || true)
+            fi
           fi
 
-          if [ -z "$SPEC" ]; then
-            echo "ERRO: buildozer.spec nao encontrado."
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERRO: pasta do projeto nao encontrada."
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$SPEC")
+          echo "Projeto encontrado:"
+          echo "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Projeto:"
-          echo "$PROJECT_DIR"
-
-      - name: Configure buildozer
+      - name: Create buildozer spec
         shell: bash
         run: |
           cd "$PROJECT_DIR"
 
-          sed -i '/^title[ ]*=/d' buildozer.spec
-          sed -i '/^package.name[ ]*=/d' buildozer.spec
-          sed -i '/^package.domain[ ]*=/d' buildozer.spec
-          sed -i '/^source.dir[ ]*=/d' buildozer.spec
-          sed -i '/^version[ ]*=/d' buildozer.spec
-          sed -i '/^requirements[ ]*=/d' buildozer.spec
-          sed -i '/^source.include_exts[ ]*=/d' buildozer.spec
-          sed -i '/^android.arch[ ]*=/d' buildozer.spec
-          sed -i '/^android.archs[ ]*=/d' buildozer.spec
-          sed -i '/^android.api[ ]*=/d' buildozer.spec
-          sed -i '/^android.minapi[ ]*=/d' buildozer.spec
-          sed -i '/^android.accept_sdk_license[ ]*=/d' buildozer.spec
-          sed -i '/^p4a.local_recipes[ ]*=/d' buildozer.spec
-          sed -i '/^p4a.bootstrap[ ]*=/d' buildozer.spec
+          rm -f buildozer.spec
 
           printf '%s\n' \
+            '[app]' \
             'title = Chapada Dragon' \
             'package.name = chapadadragon' \
             'package.domain = org.chapadadragon' \
             'source.dir = .' \
+            'source.include_exts = py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf,obj,mtl' \
             'version = 0.1.0' \
             'requirements = python3,pygame-ce' \
-            'source.include_exts = py,png,jpg,jpeg,kv,atlas,wav,ogg,mp3,ttf' \
+            'orientation = landscape' \
+            'fullscreen = 0' \
             'android.archs = arm64-v8a' \
             'android.api = 35' \
             'android.minapi = 24' \
             'android.accept_sdk_license = True' \
+            'p4a.bootstrap = sdl2' \
             'p4a.local_recipes = p4a-recipes' \
-            'p4a.bootstrap = sdl2' >> buildozer.spec
+            '' \
+            '[buildozer]' \
+            'log_level = 2' \
+            'warn_on_root = 1' \
+            > buildozer.spec
 
+          echo "========================================"
+          echo "BUILDOSER.SPEC CRIADO"
+          echo "========================================"
+
+          cat buildozer.spec
+
+      - name: Check project
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+
+          if [ ! -f main.py ]; then
+            echo "AVISO: main.py nao esta na raiz."
+
+            find . -maxdepth 3 -type f -name "main.py" -print
+          else
+            echo "main.py encontrado."
+          fi
+
+      - name: Create pygame recipe
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+
+          rm -rf p4a-recipes
           mkdir -p p4a-recipes/pygame-ce
 
           printf '%s\n' \
@@ -100,12 +128,27 @@ jobs:
             '    version = "2.4.0"' \
             '    url = "https://github.com/pygame-community/pygame-ce/archive/{version}.tar.gz"' \
             '    site_packages_name = "pygame"' \
-            '    depends = ["sdl2", "sdl2_image", "sdl2_mixer", "sdl2_ttf", "setuptools", "jpeg", "png"]' \
+            '    depends = [' \
+            '        "sdl2",' \
+            '        "sdl2_image",' \
+            '        "sdl2_mixer",' \
+            '        "sdl2_ttf",' \
+            '        "setuptools",' \
+            '        "jpeg",' \
+            '        "png",' \
+            '    ]' \
             '' \
             'recipe = PygameCeRecipe()' \
             > p4a-recipes/pygame-ce/__init__.py
 
-          echo "buildozer.spec configurado."
+          echo "Recipe pygame-ce criada."
+
+      - name: Initialize Buildozer
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+
+          buildozer android p4a -- --help || true
 
       - name: Prepare Android SDK
         shell: bash
@@ -118,16 +161,20 @@ jobs:
           echo "ANDROIDSDK=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
 
-          cd "$PROJECT_DIR"
-
-          buildozer android p4a -- --help || true
+          echo "========================================"
+          echo "ANDROID SDK"
+          echo "========================================"
 
           SDKMANAGER=$(find "$HOME/.buildozer" -type f -name "sdkmanager" | head -n 1 || true)
 
           if [ -z "$SDKMANAGER" ]; then
             echo "ERRO: sdkmanager nao encontrado."
+            find "$HOME/.buildozer" -type f -name "sdkmanager*" -print || true
             exit 1
           fi
+
+          echo "sdkmanager encontrado:"
+          echo "$SDKMANAGER"
 
           yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses || true
 
@@ -137,10 +184,17 @@ jobs:
             "build-tools;37.0.0" \
             "platforms;android-35"
 
+          echo "Verificando AAPT..."
+
           test -x "$SDK_ROOT/build-tools/37.0.0/aapt"
+
+          echo "AAPT OK."
+
+          echo "Verificando AIDL..."
+
           test -x "$SDK_ROOT/build-tools/37.0.0/aidl"
 
-          echo "Android SDK OK."
+          echo "AIDL OK."
 
       - name: Build APK
         shell: bash
@@ -155,18 +209,21 @@ jobs:
 
           STATUS=$?
 
-          echo "=============================="
-          echo "ERROS"
-          echo "=============================="
+          echo ""
+          echo "========================================"
+          echo "ERROS IMPORTANTES"
+          echo "========================================"
 
           grep -nEi "error:|fatal error|failed|exception|traceback|command failed|license|aidl" build.log | tail -n 150 || true
 
-          echo "=============================="
+          echo ""
+          echo "========================================"
           echo "FINAL DO LOG"
-          echo "=============================="
+          echo "========================================"
 
           tail -n 200 build.log
 
+          echo ""
           echo "CODIGO FINAL: $STATUS"
 
           exit $STATUS
@@ -181,7 +238,12 @@ jobs:
 
       - name: Find APK
         if: success()
+        shell: bash
         run: |
+          echo "========================================"
+          echo "PROCURANDO APK"
+          echo "========================================"
+
           find "$PROJECT_DIR/bin" -type f -name "*.apk" -print
 
       - name: Upload APK
