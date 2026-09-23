@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-
       - name: Baixar repositorio
         uses: actions/checkout@v4
 
@@ -59,21 +58,12 @@ jobs:
           echo "PROCURANDO PROJETO"
           echo "========================================"
 
-          SPEC=$(find . \
-            -type f \
-            -name "buildozer.spec" \
-            ! -path "./.git/*" \
-            | head -n 1 || true)
+          SPEC=$(find . -type f -name "buildozer.spec" ! -path "./.git/*" | head -n 1 || true)
 
           if [ -z "$SPEC" ]; then
-
             echo "buildozer.spec nao encontrado."
 
-            ZIP_FILE=$(find . \
-              -type f \
-              -iname "*.zip" \
-              ! -path "./.git/*" \
-              | head -n 1 || true)
+            ZIP_FILE=$(find . -type f -iname "*.zip" ! -path "./.git/*" | head -n 1 || true)
 
             if [ -z "$ZIP_FILE" ]; then
               echo "ERRO: nenhum ZIP encontrado."
@@ -87,10 +77,7 @@ jobs:
 
             unzip -o "$ZIP_FILE" -d projeto
 
-            SPEC=$(find projeto \
-              -type f \
-              -name "buildozer.spec" \
-              | head -n 1 || true)
+            SPEC=$(find projeto -type f -name "buildozer.spec" | head -n 1 || true)
           fi
 
           if [ -z "$SPEC" ]; then
@@ -104,7 +91,6 @@ jobs:
           echo "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "SPEC=$SPEC" >> "$GITHUB_ENV"
 
       - name: Preparar pygame-ce
         shell: bash
@@ -118,14 +104,11 @@ from pythonforandroid.recipe import CompiledComponentsPythonRecipe
 
 
 class PygameCeRecipe(CompiledComponentsPythonRecipe):
-
     version = "2.4.0"
 
     url = "https://github.com/pygame-community/pygame-ce/archive/{version}.tar.gz"
 
-    site_packages_name = "pygame-ce"
-
-    name = "pygame-ce"
+    site_packages_name = "pygame"
 
     depends = [
         "sdl2",
@@ -136,8 +119,6 @@ class PygameCeRecipe(CompiledComponentsPythonRecipe):
         "jpeg",
         "png",
     ]
-
-    call_hostpython_via_targetpython = False
 
 
 recipe = PygameCeRecipe()
@@ -152,7 +133,7 @@ PYTHON
 
           cd "$PROJECT_DIR"
 
-          python3 <<'PYTHON'
+          python3 - <<'PYTHON'
 from pathlib import Path
 
 path = Path("buildozer.spec")
@@ -168,7 +149,6 @@ if "[app]" not in lines:
     lines.insert(0, "[app]")
 
 start = lines.index("[app]")
-
 end = len(lines)
 
 for i in range(start + 1, len(lines)):
@@ -176,7 +156,7 @@ for i in range(start + 1, len(lines)):
         end = i
         break
 
-app = lines[start + 1:end]
+app_lines = lines[start + 1:end]
 
 options = {
     "title": "Chapada Dragon",
@@ -196,7 +176,7 @@ options = {
 
 clean = []
 
-for line in app:
+for line in app_lines:
     stripped = line.strip()
 
     remove = False
@@ -226,19 +206,25 @@ for line in app:
 for key, value in options.items():
     clean.append(f"{key} = {value}")
 
-lines = (
+new_lines = (
     lines[:start + 1]
     + clean
     + lines[end:]
 )
 
 path.write_text(
-    "\n".join(lines) + "\n",
+    "\n".join(new_lines) + "\n",
     encoding="utf-8"
 )
 
-print(path.read_text(encoding="utf-8"))
+print("buildozer.spec corrigido.")
 PYTHON
+
+          echo "========================================"
+          echo "BUILDOSER.SPEC"
+          echo "========================================"
+
+          cat buildozer.spec
 
       - name: Preparar Android SDK
         shell: bash
@@ -247,61 +233,42 @@ PYTHON
 
           SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
 
-          echo "========================================"
-          echo "PREPARANDO ANDROID SDK"
-          echo "========================================"
-
-          mkdir -p "$SDK_ROOT"
-
           export ANDROIDSDK="$SDK_ROOT"
           export ANDROID_HOME="$SDK_ROOT"
 
           echo "ANDROIDSDK=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
 
-          echo "Inicializando Buildozer..."
+          mkdir -p "$SDK_ROOT"
 
           cd "$PROJECT_DIR"
+
+          echo "Inicializando ambiente Android..."
 
           buildozer android p4a -- --help || true
 
           echo "Procurando sdkmanager..."
 
-          SDKMANAGER=$(find "$SDK_ROOT" \
+          SDKMANAGER=$(find "$HOME/.buildozer" \
             -type f \
             -name "sdkmanager" \
             | head -n 1 || true)
 
           if [ -z "$SDKMANAGER" ]; then
-
-            echo "sdkmanager nao encontrado dentro do SDK esperado."
-
-            SDKMANAGER=$(find "$HOME/.buildozer" \
-              -type f \
-              -name "sdkmanager" \
-              | head -n 1 || true)
-          fi
-
-          if [ -z "$SDKMANAGER" ]; then
             echo "ERRO: sdkmanager nao encontrado."
-            find "$HOME/.buildozer" -type f -name "sdkmanager*" | head -n 100
             exit 1
           fi
 
-          echo "sdkmanager:"
+          echo "SDKMANAGER:"
           echo "$SDKMANAGER"
 
-          echo "========================================"
-          echo "ACEITANDO LICENCAS"
-          echo "========================================"
+          echo "Aceitando licencas..."
 
           yes | "$SDKMANAGER" \
             --sdk_root="$SDK_ROOT" \
             --licenses || true
 
-          echo "========================================"
-          echo "INSTALANDO COMPONENTES"
-          echo "========================================"
+          echo "Instalando Android SDK..."
 
           "$SDKMANAGER" \
             --sdk_root="$SDK_ROOT" \
@@ -309,35 +276,19 @@ PYTHON
             "build-tools;37.0.0" \
             "platforms;android-35"
 
-          echo "========================================"
-          echo "VERIFICANDO BUILD TOOLS"
-          echo "========================================"
+          echo "Verificando AAPT..."
 
-          if [ ! -x "$SDK_ROOT/build-tools/37.0.0/aapt" ]; then
-            echo "ERRO: Build Tools 37 nao foi instalado."
+          test -x "$SDK_ROOT/build-tools/37.0.0/aapt"
 
-            ls -la "$SDK_ROOT/build-tools" || true
+          echo "AAPT encontrado."
 
-            exit 1
-          fi
+          echo "Verificando AIDL..."
 
-          echo "Build Tools 37 encontrado."
-
-          echo "========================================"
-          echo "VERIFICANDO AIDL"
-          echo "========================================"
-
-          if [ ! -x "$SDK_ROOT/build-tools/37.0.0/aidl" ]; then
-            echo "ERRO: AIDL nao encontrado."
-
-            ls -la "$SDK_ROOT/build-tools/37.0.0" || true
-
-            exit 1
-          fi
+          test -x "$SDK_ROOT/build-tools/37.0.0/aidl"
 
           echo "AIDL encontrado."
 
-      - name: Preparar ambiente
+      - name: Limpar compilacao anterior
         shell: bash
         run: |
           set -e
@@ -346,7 +297,7 @@ PYTHON
 
           rm -rf bin
 
-          echo "Ambiente pronto."
+          echo "Limpeza concluida."
 
       - name: Compilar APK
         shell: bash
@@ -366,33 +317,32 @@ PYTHON
 
           echo ""
           echo "========================================"
-          echo "ERROS ENCONTRADOS"
+          echo "ERROS IMPORTANTES"
           echo "========================================"
 
           grep -nEi \
             "error:|fatal error|failed|exception|traceback|command failed|license|aidl" \
             build.log \
-            | tail -n 120 || true
+            | tail -n 150 || true
 
           echo ""
           echo "========================================"
-          echo "ULTIMAS 150 LINHAS"
+          echo "FINAL DO LOG"
           echo "========================================"
 
-          tail -n 150 build.log
+          tail -n 200 build.log
 
           echo ""
           echo "CODIGO FINAL: $STATUS"
 
           exit $STATUS
 
-      - name: Salvar log completo
+      - name: Salvar log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Chapada-Dragon-Build-Log
-          path: |
-            ${{ env.PROJECT_DIR }}/build.log
+          path: ${{ env.PROJECT_DIR }}/build.log
           if-no-files-found: warn
 
       - name: Procurar APK
@@ -400,7 +350,7 @@ PYTHON
         shell: bash
         run: |
           echo "========================================"
-          echo "PROCURANDO APK"
+          echo "APK GERADO"
           echo "========================================"
 
           find "$PROJECT_DIR/bin" \
