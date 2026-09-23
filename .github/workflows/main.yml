@@ -230,7 +230,9 @@ jobs:
 
           android.api = 35
 
-          android.minapi = 24
+          android.minapi = 26
+
+          android.ndk_api = 26
 
           android.accept_sdk_license = True
 
@@ -373,7 +375,7 @@ jobs:
 
 
                       # ------------------------------------------------
-                      # CORREÇÃO SDL_IMAGE
+                      # SDL IMAGE
                       # ------------------------------------------------
 
                       sdl_image_dir = join(
@@ -400,12 +402,6 @@ jobs:
                       )
 
 
-                      # O pygame-ce procura SDL_image.h
-                      # também na pasta raiz.
-                      #
-                      # Se o header estiver em include/,
-                      # fazemos uma cópia para a raiz.
-
                       if os.path.isfile(header):
 
                           if not os.path.isfile(root_header):
@@ -417,7 +413,7 @@ jobs:
 
 
                       # ------------------------------------------------
-                      # GERAR SETUP CORRIGIDO
+                      # SETUP DO PYGAME-CE
                       # ------------------------------------------------
 
                       setup_file = setup_template.format(
@@ -462,7 +458,6 @@ jobs:
                           sdl_image_includes=(
                               "-I"
                               + sdl_image_dir
-
                               + " -I"
                               + sdl_image_include_dir
                           ),
@@ -483,351 +478,3 @@ jobs:
                               "-I"
                               + png_inc_dir
                           ),
-
-
-                          freetype_includes=""
-                      )
-
-
-                      open(
-                          "Setup",
-                          "w"
-                      ).write(setup_file)
-
-
-              def get_recipe_env(self, arch):
-
-                  env = super().get_recipe_env(arch)
-
-                  env["USE_SDL2"] = "1"
-
-                  env["PYGAME_CROSS_COMPILE"] = "TRUE"
-
-                  env["PYGAME_ANDROID"] = "TRUE"
-
-                  return env
-
-
-          recipe = Pygame2Recipe()
-
-          PYRECIPE
-
-
-          echo "Verificando receita..."
-
-          python3 -m py_compile \
-            p4a-recipes/pygame-ce/__init__.py
-
-          echo "Receita pygame-ce OK."
-
-
-      # ============================================================
-      # 8. INICIALIZAR PYTHON-FOR-ANDROID
-      # ============================================================
-      - name: Initialize Buildozer
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          buildozer android p4a -- --help || true
-
-
-      # ============================================================
-      # 9. PREPARAR ANDROID SDK
-      # ============================================================
-      - name: Prepare Android SDK
-        shell: bash
-        run: |
-          set -e
-
-          SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-
-          export ANDROIDSDK="$SDK_ROOT"
-          export ANDROID_HOME="$SDK_ROOT"
-
-          echo "ANDROIDSDK=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-
-
-          SDKMANAGER="$(
-            find "$HOME/.buildozer" \
-              -type f \
-              -name 'sdkmanager' \
-              -print -quit || true
-          )"
-
-
-          if [ -z "$SDKMANAGER" ]; then
-
-            echo "ERRO: sdkmanager não encontrado."
-
-            exit 1
-
-          fi
-
-
-          echo "Aceitando licenças..."
-
-          yes | "$SDKMANAGER" \
-            --sdk_root="$SDK_ROOT" \
-            --licenses || true
-
-
-          echo "Instalando componentes Android..."
-
-
-          "$SDKMANAGER" \
-            --sdk_root="$SDK_ROOT" \
-            "platform-tools" \
-            "build-tools;35.0.0" \
-            "platforms;android-35"
-
-
-          echo "Android SDK preparado."
-
-
-      # ============================================================
-      # 10. ACEITAR LICENÇAS NOVAMENTE
-      # ============================================================
-      - name: Accept Android licenses
-        shell: bash
-        run: |
-          set -e
-
-          SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-
-          SDKMANAGER="$(
-            find "$HOME/.buildozer" \
-              -type f \
-              -name 'sdkmanager' \
-              -print -quit || true
-          )"
-
-
-          if [ -n "$SDKMANAGER" ]; then
-
-            yes | "$SDKMANAGER" \
-              --sdk_root="$SDK_ROOT" \
-              --licenses || true
-
-          fi
-
-
-      # ============================================================
-      # 11. MOSTRAR VERSÕES
-      # ============================================================
-      - name: Show build environment
-        shell: bash
-        run: |
-          echo "======================================"
-          echo "JAVA"
-          echo "======================================"
-
-          java -version
-
-
-          echo "======================================"
-          echo "PYTHON DO RUNNER"
-          echo "======================================"
-
-          python3 --version
-
-
-          echo "======================================"
-          echo "BUILDOZER"
-          echo "======================================"
-
-          buildozer --version
-
-
-          echo "======================================"
-          echo "JAVA_HOME"
-          echo "======================================"
-
-          echo "$JAVA_HOME"
-
-
-      # ============================================================
-      # 12. LIMPAR BUILD ANTERIOR
-      # ============================================================
-      - name: Clean old build
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          rm -rf bin
-
-          rm -rf .buildozer/android/platform/build-*
-
-          echo "Build antigo removido."
-
-          echo "Preparando nova compilação."
-
-
-      # ============================================================
-      # 13. COMPILAR APK
-      # ============================================================
-      - name: Build APK
-        shell: bash
-        run: |
-
-          cd "$PROJECT_DIR"
-
-          set +e
-
-          echo "======================================"
-          echo "INICIANDO COMPILAÇÃO DO CHAPADA DRAGON"
-          echo "======================================"
-
-          buildozer -v android debug > build.log 2>&1
-
-          STATUS=$?
-
-
-          echo ""
-          echo "======================================"
-          echo "ERROS IMPORTANTES"
-          echo "======================================"
-
-          grep -nEi \
-            "error:|fatal error|failed|exception|traceback|command failed|license|aidl" \
-            build.log \
-            | tail -n 250 || true
-
-
-          echo ""
-          echo "======================================"
-          echo "FINAL DO LOG"
-          echo "======================================"
-
-          tail -n 300 build.log
-
-
-          echo ""
-          echo "======================================"
-          echo "CÓDIGO FINAL: $STATUS"
-          echo "======================================"
-
-
-          exit $STATUS
-
-
-      # ============================================================
-      # 14. GUARDAR LOG
-      # ============================================================
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Chapada-Dragon-Build-Log
-          path: ${{ env.PROJECT_DIR }}/build.log
-          if-no-files-found: warn
-          retention-days: 7
-
-
-      # ============================================================
-      # 15. PROCURAR APK
-      # ============================================================
-      - name: Find APK
-        if: success()
-        shell: bash
-        run: |
-
-          set -e
-
-          APK="$(
-            find "$PROJECT_DIR/bin" \
-              -type f \
-              -name '*.apk' \
-              -print -quit || true
-          )"
-
-
-          if [ -z "$APK" ]; then
-
-            echo "ERRO: nenhum APK foi encontrado."
-
-            echo ""
-            echo "Arquivos APK/AAB encontrados:"
-
-            find "$PROJECT_DIR" \
-              -type f \
-              \( \
-                -name '*.apk' \
-                -o \
-                -name '*.aab' \
-              \) \
-              -print || true
-
-            exit 1
-
-          fi
-
-
-          echo "======================================"
-          echo "APK ENCONTRADO"
-          echo "======================================"
-
-          echo "$APK"
-
-          ls -lh "$APK"
-
-
-      # ============================================================
-      # 16. PREPARAR APK PARA DOWNLOAD
-      # ============================================================
-      - name: Prepare APK for download
-        if: success()
-        shell: bash
-        run: |
-
-          set -e
-
-          APK="$(
-            find "$PROJECT_DIR/bin" \
-              -type f \
-              -name '*.apk' \
-              -print -quit || true
-          )"
-
-
-          if [ -z "$APK" ]; then
-
-            echo "ERRO: APK não encontrado."
-
-            exit 1
-
-          fi
-
-
-          mkdir -p "$GITHUB_WORKSPACE/apk"
-
-
-          cp "$APK" \
-            "$GITHUB_WORKSPACE/apk/Chapada-Dragon.apk"
-
-
-          echo "======================================"
-          echo "APK PRONTO PARA DOWNLOAD"
-          echo "======================================"
-
-
-          ls -lh \
-            "$GITHUB_WORKSPACE/apk/Chapada-Dragon.apk"
-
-
-      # ============================================================
-      # 17. DISPONIBILIZAR APK NO GITHUB
-      # ============================================================
-      - name: Upload APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Chapada-Dragon-APK
-          path: ${{ github.workspace }}/apk/Chapada-Dragon.apk
-          if-no-files-found: error
-          retention-days: 7
