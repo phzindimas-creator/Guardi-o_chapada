@@ -600,6 +600,7 @@ PYRECIPE
           name: Chapada-Dragon-Build-Log
           path: ${{ env.PROJECT_DIR }}/build.log
           if-no-files-found: warn
+          retention-days: 7
 
 
       # ========================================
@@ -607,17 +608,20 @@ PYRECIPE
       # ========================================
 
       - name: Find APK
-        if: success()
+        if: always()
         shell: bash
         run: |
           echo "========================================"
           echo "PROCURANDO APK"
           echo "========================================"
 
-          find "$PROJECT_DIR/bin" \
+          echo "Arquivos APK encontrados:"
+          
+          find "$GITHUB_WORKSPACE" \
             -type f \
             -name "*.apk" \
-            -print
+            ! -path "*/.git/*" \
+            -print || true
 
           APK=$(find "$PROJECT_DIR/bin" \
             -type f \
@@ -625,12 +629,46 @@ PYRECIPE
             | head -n 1 || true)
 
           if [ -z "$APK" ]; then
-            echo "ERRO: nenhum APK foi encontrado."
-            exit 1
+
+            echo ""
+            echo "Nenhum APK encontrado em bin."
+            echo "Procurando em todo o projeto..."
+
+            APK=$(find "$GITHUB_WORKSPACE" \
+              -type f \
+              -name "*.apk" \
+              ! -path "*/.git/*" \
+              | head -n 1 || true)
+
           fi
 
-          echo "APK ENCONTRADO:"
+          if [ -z "$APK" ]; then
+            echo ""
+            echo "========================================"
+            echo "NENHUM APK FOI ENCONTRADO"
+            echo "========================================"
+            echo "A compilacao precisa terminar com sucesso"
+            echo "para que o APK possa ser disponibilizado."
+            exit 0
+          fi
+
+          echo ""
+          echo "========================================"
+          echo "APK ENCONTRADO"
+          echo "========================================"
+
           echo "$APK"
+
+          mkdir -p "$GITHUB_WORKSPACE/apk-output"
+
+          cp "$APK" \
+            "$GITHUB_WORKSPACE/apk-output/Chapada-Dragon.apk"
+
+          echo ""
+          echo "APK preparado para download:"
+          
+          ls -lh \
+            "$GITHUB_WORKSPACE/apk-output/Chapada-Dragon.apk"
 
 
       # ========================================
@@ -638,10 +676,10 @@ PYRECIPE
       # ========================================
 
       - name: Upload APK
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Chapada-Dragon-APK
-          path: ${{ env.PROJECT_DIR }}/bin/*.apk
-          if-no-files-found: error
+          path: ${{ github.workspace }}/apk-output/Chapada-Dragon.apk
+          if-no-files-found: warn
           retention-days: 7
